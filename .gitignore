@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*\.class
+*.so
+.Python
+env/
+.env
+.venv
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Database
+*.sqlite3
+*.db
+
+# Backups locales de base de datos
+backups/
+
+# Logs
+logs/
+*.log
+app/logs/
+
+# ML Models / Cache
+model_cache/
+.cache/
+
+# Uploads
+app/uploads/*
+!app/uploads/.gitkeep
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

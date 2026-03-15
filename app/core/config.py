@@ -4,6 +4,7 @@ Todas las variables se cargan automáticamente desde .env por pydantic_settings.
 """
 import os
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -11,7 +12,15 @@ class Settings(BaseSettings):
     """Configuración de M4A Backend. Valores por defecto para desarrollo local."""
 
     # Base de datos
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/m4a_db"
+    DATABASE_URL: str = ""
+    DATABASE_PRIVATE_URL: str = ""
+    DATABASE_PUBLIC_URL: str = ""
+    PGHOST: str = ""
+    PGPORT: str = ""
+    PGUSER: str = ""
+    PGPASSWORD: str = ""
+    PGDATABASE: str = ""
+    PGSSLMODE: str = ""
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
     DB_POOL_TIMEOUT: int = 30
@@ -108,6 +117,47 @@ class Settings(BaseSettings):
     def MAX_UPLOAD_SIZE(self) -> int:
         """Tamaño máximo de subida en bytes."""
         return self.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+    @model_validator(mode="after")
+    def _resolve_database_url(self):
+        """
+        Resuelve DATABASE_URL en este orden:
+        1) DATABASE_URL
+        2) DATABASE_PRIVATE_URL
+        3) DATABASE_PUBLIC_URL
+        4) variables PG* (Railway/Postgres)
+        5) fallback local
+        """
+        db_url = (self.DATABASE_URL or "").strip()
+        if not db_url:
+            db_url = (self.DATABASE_PRIVATE_URL or "").strip()
+        if not db_url:
+            db_url = (self.DATABASE_PUBLIC_URL or "").strip()
+
+        if not db_url and all([
+            self.PGHOST,
+            self.PGPORT,
+            self.PGUSER,
+            self.PGPASSWORD,
+            self.PGDATABASE,
+        ]):
+            ssl_qs = ""
+            if self.PGSSLMODE:
+                ssl_qs = f"?sslmode={self.PGSSLMODE}"
+            db_url = (
+                f"postgresql://{self.PGUSER}:{self.PGPASSWORD}"
+                f"@{self.PGHOST}:{self.PGPORT}/{self.PGDATABASE}{ssl_qs}"
+            )
+
+        if not db_url:
+            db_url = "postgresql://postgres:postgres@localhost:5432/m4a_db"
+
+        # SQLAlchemy espera esquema postgresql://
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+        self.DATABASE_URL = db_url
+        return self
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

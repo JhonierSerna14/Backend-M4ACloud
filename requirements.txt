@@ -1,3 +1,8 @@
+# ============================================================
+# requirements.txt — Backend API para despliegue en Render/cloud
+# Sin dependencias de GPU/Whisper/ML pesado.
+# ============================================================
+
 # Frameworks y utilidades web
 fastapi==0.118.0
 uvicorn==0.37.0
@@ -21,26 +26,9 @@ python-jose==3.5.0
 passlib==1.7.4
 bcrypt==3.2.2
 
-# IA en la Nube (Groq - API gratuita, rápida y eficiente)
-# Usa httpx que ya está incluido arriba
-
-# Audio temporal en Dropbox (archivos pesados)
+# Storage en la nube
+supabase>=2.0.0
 dropbox>=12.0.2
-
-# Procesamiento de audio y transcripción
-faster-whisper==1.2.0
-librosa==0.11.0
-soundfile==0.13.1
-ffmpeg-python==0.2.0
-pydub==0.25.1
-audioread==3.0.1
-av==15.1.0
-
-# Optimizaciones para audios largos y GPU
-torch
-torchaudio
-torchvision
-ctranslate2==4.6.0
 
 # Logging
 loguru==0.7.3
@@ -50,33 +38,12 @@ coloredlogs==15.0.1
 weasyprint==64.1
 markdown==3.8
 
-# DEPENDENCIAS PARA ALTO RENDIMIENTO
-# Monitoreo de sistema y recursos
+# Monitoreo
 psutil==7.1.0
-# Prometheus client for metrics exposition
 prometheus_client==0.17.0
 
-# Procesamiento numérico optimizado
-numpy==2.3.3
-numba==0.62.1
-llvmlite==0.45.1
-
-# Optimizaciones de audio
-scipy==1.16.2
-scikit-learn==1.7.2
-joblib==1.5.2
-
-# Dependencias adicionales del sistema
+# Utilidades compartidas
 requests==2.32.5
-urllib3==2.5.0
-certifi==2025.10.5
-charset-normalizer==3.4.3
-idna==3.10
-anyio==4.11.0
-sniffio==1.3.1
-h11==0.16.0
-httpcore==1.0.9
-click==8.3.0
 typing_extensions==4.15.0
 annotated-types==0.7.0
 packaging==25.0

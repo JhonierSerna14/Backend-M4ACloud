@@ -60,8 +60,7 @@ app/
 scripts/
   migrate_uploads_to_supabase.py  # One-time utility: bulk-upload local files to Supabase
 run_app.py              # Local dev launcher (uvicorn --reload)
-requirements-cloud.txt  # Cloud API dependencies (deploy to Render or similar)
-requirements.txt        # Full dependencies including ML libs (local/dev use)
+requirements.txt        # Dependencias únicas del backend (Render/cloud)
 ```
 
 ## Installation and setup
@@ -82,7 +81,7 @@ source .venv/bin/activate
 ### 2. Install dependencies
 
 ```bash
-pip install -r requirements-cloud.txt
+pip install -r requirements.txt
 ```
 
 ### 3. Environment variables

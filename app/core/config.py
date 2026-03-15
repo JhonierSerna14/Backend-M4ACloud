@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Audio storage backend: storage | dropbox
     AUDIO_STORAGE_BACKEND: str = "storage"
     DROPBOX_ACCESS_TOKEN: str = ""
+    DROPBOX_APP_KEY: str = ""
+    DROPBOX_APP_SECRET: str = ""
+    DROPBOX_REFRESH_TOKEN: str = ""
     DROPBOX_AUDIO_ROOT_PATH: str = "/M4A-Audio-Temp"
 
     # Worker: clave secreta compartida con el worker local

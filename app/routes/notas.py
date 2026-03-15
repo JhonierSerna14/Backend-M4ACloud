@@ -282,9 +282,14 @@ def export_nota_pdf(
     except (ImportError, OSError) as e:
         logger.error(f"Error al cargar WeasyPrint: {e}")
         raise HTTPException(
-            status_code=501, 
-            detail="Exportación PDF no disponible. En Windows se requiere instalar las librerías GTK3. "
-                   "Descargue e instale el 'GTK for Windows Runtime' desde https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases"
+            status_code=501,
+            detail=(
+                "Exportación PDF no disponible: WeasyPrint requiere librerías nativas de GTK/Cairo. "
+                "En Linux instale: `apt-get update && apt-get install -y libcairo2 libpango-1.0-0 "
+                "libgdk-pixbuf2.0-0 libgobject-2.0-0 shared-mime-info`. "
+                "En Windows instale el 'GTK for Windows Runtime' desde "
+                "https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases"
+            )
         )
     
     contenido = nota.contenido or ""

@@ -14,9 +14,23 @@ CHUNK_SIZE = 8 * 1024 * 1024  # 8MB por chunk
 
 
 def _client() -> dropbox.Dropbox:
-    if not settings.DROPBOX_ACCESS_TOKEN:
-        raise RuntimeError("Falta DROPBOX_ACCESS_TOKEN en configuración")
-    return dropbox.Dropbox(settings.DROPBOX_ACCESS_TOKEN, timeout=300)
+    """Crea el cliente de Dropbox.
+
+    Si se dispone de refresh token + app key/secret, lo usamos para que el SDK pueda
+    renovar automáticamente el access token cuando caduque.
+    """
+    if settings.DROPBOX_REFRESH_TOKEN and settings.DROPBOX_APP_KEY and settings.DROPBOX_APP_SECRET:
+        return dropbox.Dropbox(
+            oauth2_refresh_token=settings.DROPBOX_REFRESH_TOKEN,
+            app_key=settings.DROPBOX_APP_KEY,
+            app_secret=settings.DROPBOX_APP_SECRET,
+            timeout=300,
+        )
+
+    if settings.DROPBOX_ACCESS_TOKEN:
+        return dropbox.Dropbox(settings.DROPBOX_ACCESS_TOKEN, timeout=300)
+
+    raise RuntimeError("Falta DROPBOX_ACCESS_TOKEN o configuración de refresh token en configuración")
 
 
 def _normalize(path: str) -> str:

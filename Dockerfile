@@ -12,9 +12,9 @@ RUN apt-get update \
         build-essential \
         libcairo2 \
         libpango-1.0-0 \
-        libgdk-pixbuf2.0-0 \
+        libgdk-pixbuf-xlib-2.0-0 \
         libgobject-2.0-0 \
-        libffi7 \
+        libffi8 \
         shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 

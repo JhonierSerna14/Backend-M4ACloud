@@ -1,0 +1,8 @@
+from app.routes.auth import router as auth_router
+from app.routes.materias import router as materias_router
+from app.routes.tareas import router as tareas_router
+from app.routes.notas import router as notas_router
+from app.routes.archivos import router as archivos_router
+from app.routes.audio import router as audio_router
+from app.routes.dashboard import router as dashboard_router
+from app.routes.ws_notifications import router as ws_router

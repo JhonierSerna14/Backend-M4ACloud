@@ -1,17 +1,6 @@
 # M4A Backend — Mis Materias, Mis Apuntes
 
-REST API built with FastAPI for academic management. Records class audio, transcribes it locally with Faster-Whisper (GPU) and generates structured HTML notes with Groq/Gemini AI.
-
-## Architecture overview
-
-The system runs as **two separate processes**:
-
-| Component | Where it runs | Requirements file |
-|-----------|--------------|-------------------|
-| **Cloud API** (FastAPI) | Render / any cloud host | `requirements-cloud.txt` |
-| **Local Worker** (transcription) | User's PC with GPU | `requirements.txt` |
-
-The cloud API handles all user-facing endpoints. When an audio file is uploaded, it stores the file (Supabase Storage or Dropbox) and creates a `Nota` with `status=pending`. The local worker polls `/api/v1/worker/jobs/next`, downloads the audio, runs Whisper, generates the AI summary and reports the result back via HTTP. Real-time progress is pushed to the frontend through WebSocket (`/ws/notas/{id}`).
+REST API built with FastAPI for academic management. Handles authentication, subjects, notes, tasks and files. Audio files are accepted, stored and enqueued for an external worker that runs transcription and AI summarization — results are written back through internal worker endpoints.
 
 ## Features
 
@@ -20,9 +9,7 @@ The cloud API handles all user-facing endpoints. When an audio file is uploaded,
 - **Notas / lienzos** — class canvas: created manually or generated from audio; supports rich HTML content and image attachments
 - **Tareas** — academic events (task, exam, quiz, delivery…) with priority, deadline and custom order
 - **Archivos** — file attachments per subject (PDF, images, Office docs)
-- **Audio upload** — validates MIME type and size, stores via Supabase Storage or Dropbox, enqueues for the local worker
-- **AI summarization** — Groq (Llama 3.3-70b) as primary provider, Google Gemini (gemini-2.5-flash) as automatic fallback; detects academic tasks mentioned in class
-- **Faster-Whisper transcription** — GPU-accelerated, chunked for long files, VAD filter, hallucination detection
+- **Audio intake** — validates, stores (Supabase Storage or Dropbox) and enqueues the file; a separate worker handles transcription and AI summarization
 - **WebSocket notifications** — real-time processing progress per note
 - **Dashboard** — single-call summary of stats, upcoming events and recent notes
 - **Prometheus metrics** — `/metrics` endpoint for monitoring
@@ -31,7 +18,6 @@ The cloud API handles all user-facing endpoints. When an audio file is uploaded,
 
 - Python 3.10+
 - PostgreSQL (or Supabase hosted Postgres)
-- CUDA-compatible GPU — optional, for the local worker only
 
 ## Project structure
 
@@ -74,8 +60,8 @@ app/
 scripts/
   migrate_uploads_to_supabase.py  # One-time utility: bulk-upload local files to Supabase
 run_app.py              # Local dev launcher (uvicorn --reload)
-requirements.txt        # Local worker dependencies (GPU, Whisper, PyTorch)
-requirements-cloud.txt  # Cloud API dependencies (no ML, includes Supabase SDK)
+requirements-cloud.txt  # Cloud API dependencies (deploy to Render or similar)
+requirements.txt        # Full dependencies including ML libs (local/dev use)
 ```
 
 ## Installation and setup
@@ -95,14 +81,8 @@ source .venv/bin/activate
 
 ### 2. Install dependencies
 
-**Cloud API** (deploy to Render or similar):
 ```bash
 pip install -r requirements-cloud.txt
-```
-
-**Local worker** (your GPU machine):
-```bash
-pip install -r requirements.txt
 ```
 
 ### 3. Environment variables
@@ -130,35 +110,23 @@ AUDIO_STORAGE_BACKEND=dropbox
 DROPBOX_ACCESS_TOKEN=sl.xxx
 DROPBOX_AUDIO_ROOT_PATH=/M4A-Audio-Temp
 
-# ── AI summarization ──────────────────────────────────────
-# Provider: groq | gemini | disabled
-SUMMARY_PROVIDER=gemini
-GROQ_API_KEY=gsk_...          # https://console.groq.com
-GROQ_MODEL=llama-3.3-70b-versatile
-GEMINI_API_KEY=AIza...        # https://aistudio.google.com/apikey
-GEMINI_MODEL=gemini-2.5-flash
+# ── AI summarization (used by the external worker via env) ─
+SUMMARY_PROVIDER=gemini        # groq | gemini | disabled
+GROQ_API_KEY=gsk_...
+GEMINI_API_KEY=AIza...
 
-# ── Local worker secret (shared with the worker process) ──
+# ── Worker secret (shared with the external worker process) ─
 WORKER_SECRET_KEY=change-me-worker-secret
 
 # ── CORS ──────────────────────────────────────────────────
 BACKEND_CORS_ORIGINS=*
-
-# ── Whisper (local worker only) ───────────────────────────
-WHISPER_MODEL_SIZE=medium      # tiny | base | small | medium | large-v3
-WHISPER_DEVICE=cuda            # cuda | cpu | auto
-WHISPER_COMPUTE_TYPE=int8_float16
-CHUNK_DURATION_MINUTES=5
-CHUNK_OVERLAP_SECONDS=30
-MAX_PARALLEL_CHUNKS=2
-MAX_CONCURRENT_TRANSCRIPTIONS=1
 ```
 
 ### 4. Database setup
 
 The database schema must already exist (tables were created with Alembic during initial setup and are now managed directly in Supabase). No migration commands are needed.
 
-### 5. Run the cloud API locally
+### 5. Run the API locally
 
 ```bash
 python run_app.py
@@ -167,15 +135,6 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 API docs: http://localhost:8000/docs
-
-### 6. GPU configuration presets for the local worker
-
-| GPU | `WHISPER_MODEL_SIZE` | `WHISPER_COMPUTE_TYPE` | `MAX_PARALLEL_CHUNKS` |
-|-----|----------------------|------------------------|-----------------------|
-| RTX 3050 / GTX 1660 (4 GB) | `medium` | `int8` | 1 |
-| RTX 3060 / RTX 2060 (6–8 GB) | `large-v3` | `int8_float16` | 2 |
-| RTX 3090 / RTX 4090 (12 GB+) | `large-v3` | `float16` | 3 |
-| CPU only | `small` | `int8` | 1 |
 
 ## API reference
 
@@ -268,9 +227,7 @@ Streams real-time `{percent, message, status}` updates while the local worker pr
 | Database | PostgreSQL (Supabase hosted) |
 | Validation | Pydantic v2 |
 | Auth | JWT (python-jose) + bcrypt (passlib) |
-| Transcription | Faster-Whisper (CTranslate2 + PyTorch) |
-| AI summarization | Groq Llama 3.3-70b / Google Gemini 2.5 Flash |
-| File storage | Supabase Storage (cloud) / local disk |
+| File storage | Supabase Storage / local disk |
 | Audio storage | Dropbox / Supabase Storage |
 | Real-time | WebSocket (starlette) |
 | Logging | loguru + coloredlogs |

@@ -150,6 +150,12 @@ class Settings(BaseSettings):
             )
 
         if not db_url:
+            # En Railway queremos fallar explícitamente si faltan variables de DB.
+            if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
+                raise ValueError(
+                    "No se encontró configuración de base de datos en Railway. "
+                    "Define DATABASE_URL o conecta las variables DATABASE_PRIVATE_URL/PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE."
+                )
             db_url = "postgresql://postgres:postgres@localhost:5432/m4a_db"
 
         # SQLAlchemy espera esquema postgresql://

@@ -27,7 +27,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . /app
 
 # Puerto que usará Railway (o cambiar según plataforma)
+# Railway inyecta $PORT, así que definimos un valor por defecto para entornos locales.
+ENV PORT=8000
 EXPOSE 8000
 
 # Comando de arranque por defecto
-CMD ["python", "run_app.py"]
+# Usamos shell para que ${PORT} se expanda correctamente en entornos como Railway.
+CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers 1"]

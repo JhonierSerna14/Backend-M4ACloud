@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated as an API")
@@ -63,6 +64,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
 )
+
+# Compresión de respuestas para reducir latencia de red entre frontend y backend.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 # Middleware para tiempo de respuesta (útil para debugging)

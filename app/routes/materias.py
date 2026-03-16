@@ -16,7 +16,7 @@ from app.models.materia import Materia
 from app.models.nota import Nota
 from app.models.tarea import Tarea
 from app.models.archivo import Archivo
-from app.schemas.materia import MateriaCreate, MateriaUpdate, MateriaResponse, MateriaDetail
+from app.schemas.materia import MateriaCreate, MateriaUpdate, MateriaResponse, MateriaListResponse, MateriaDetail
 
 router = APIRouter(prefix="/materias", tags=["materias"])
 
@@ -71,7 +71,7 @@ def create_materia(
     return new_materia
 
 
-@router.get("/", response_model=List[MateriaResponse])
+@router.get("/", response_model=List[MateriaListResponse])
 def get_materias(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
@@ -97,7 +97,6 @@ def get_materias(
             'id': materia.id,
             'nombre': materia.nombre,
             'descripcion': materia.descripcion,
-            'contenido_html': materia.contenido_html,
             'usuario_id': materia.usuario_id,
             'fecha_creacion': materia.fecha_creacion,
             'color': materia.color,

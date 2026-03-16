@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from loguru import logger
 
@@ -86,7 +87,7 @@ async def get_next_job(
         db.query(Nota)
         .join(Materia)
         .filter(Nota.status == "queued")
-        .order_by(Nota.fecha_creacion.asc())
+        .order_by(func.coalesce(Nota.fecha_actualizacion, Nota.fecha_creacion).asc())
         .first()
     )
 
@@ -288,35 +289,37 @@ async def fail_job(
     db: Session = Depends(get_db),
     _key: str = Depends(verify_worker_key),
 ):
-    """El worker reporta un error irrecuperable en el procesamiento."""
+    """El worker reporta un fallo y la nota vuelve a cola para reintento."""
     nota = db.query(Nota).filter(Nota.id == nota_id).first()
     if not nota:
         raise HTTPException(status_code=404, detail="Nota no encontrada")
 
-    nota.status = "error"
+    previous_message = (nota.status_message or "").strip()
+    retry_count = 1
+    if "reintento #" in previous_message.lower():
+        try:
+            retry_count = int(previous_message.lower().split("reintento #", 1)[1].split(":", 1)[0].strip()) + 1
+        except Exception:
+            retry_count = 1
+
+    clean_error = (body.error or "Error desconocido").replace("\n", " ").strip()
+    clean_error = clean_error[:180]
+
+    nota.status = "queued"
     nota.progreso = 0
-    nota.status_message = f"Error: {body.error[:200]}"
-    nota.contenido = f"""# ❌ Error en Procesamiento
-
-**Problema:** {body.error}
-
-## Posibles soluciones
-1. Verificar que el audio tenga contenido de voz claro
-2. Intentar con un archivo más pequeño
-3. Verificar que el formato sea compatible (MP3, WAV, M4A)
-4. Cuando tu PC esté disponible, intentar reprocesar desde la nota"""
+    nota.status_message = f"Pendiente de reintento #{retry_count}: {clean_error}"[:255]
     db.commit()
 
     try:
         asyncio.create_task(broadcast(
             nota_id,
-            {"id": nota_id, "status": "error", "progress": 0, "message": body.error}
+            {"id": nota_id, "status": "queued", "progress": 0, "message": nota.status_message}
         ))
     except Exception:
         pass
 
-    logger.warning(f"worker: nota_id={nota_id} falló: {body.error}")
-    return {"ok": True}
+    logger.warning(f"worker: nota_id={nota_id} reencolada por fallo (reintento #{retry_count}): {clean_error}")
+    return {"ok": True, "requeued": True, "retry_count": retry_count}
 
 
 @router.get("/status", status_code=status.HTTP_200_OK)

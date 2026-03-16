@@ -6,14 +6,19 @@ FROM python:3.11-slim
 # Evitar prompts en apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Instalar dependencias del sistema necesarias para WeasyPrint + librerías comunes
+# Instalar dependencias del sistema necesarias para WeasyPrint en Debian slim.
+# libpangoft2 y harfbuzz son requeridas por el renderizado de texto/PDF en Linux.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         libcairo2 \
         libpango-1.0-0 \
-        libgdk-pixbuf-xlib-2.0-0 \
-        libgobject-2.0-0 \
+        libpangoft2-1.0-0 \
+        libharfbuzz-subset0 \
+        libgdk-pixbuf-2.0-0 \
+        libglib2.0-0 \
+        libjpeg62-turbo \
+        libopenjp2-7 \
         libffi8 \
         shared-mime-info \
     && rm -rf /var/lib/apt/lists/*

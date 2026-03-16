@@ -22,7 +22,7 @@ from app.core.ws import broadcast
 from app.models.usuario import Usuario
 from app.models.materia import Materia
 from app.models.nota import Nota, Adjunto
-from app.schemas.nota import NotaCreate, NotaUpdate, NotaResponse, NotaDetail, AdjuntoResponse
+from app.schemas.nota import NotaCreate, NotaUpdate, NotaResponse, NotaDetail, NotaListResponse, AdjuntoResponse
 
 router = APIRouter(prefix="/notas", tags=["notas"])
 
@@ -57,7 +57,7 @@ def create_nota(
     return nota
 
 
-@router.get("/", response_model=List[NotaResponse])
+@router.get("/", response_model=List[NotaListResponse])
 def get_notas(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
@@ -70,7 +70,21 @@ def get_notas(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Lista notas con filtros por materia, texto y fecha."""
-    query = db.query(Nota).join(Materia).options(joinedload(Nota.materia)).filter(Materia.usuario_id == current_user.id)
+    query = db.query(
+        Nota.id,
+        Nota.titulo,
+        Nota.materia_id,
+        Nota.fecha_clase,
+        Nota.origen_audio,
+        Nota.duracion_audio,
+        Nota.idioma_detectado,
+        Nota.status,
+        Nota.progreso,
+        Nota.fecha_creacion,
+        Nota.fecha_actualizacion,
+        Materia.nombre.label("materia_nombre"),
+        Materia.color.label("materia_color"),
+    ).join(Materia).filter(Materia.usuario_id == current_user.id)
     
     if materia_id:
         query = query.filter(Nota.materia_id == materia_id)
@@ -89,7 +103,26 @@ def get_notas(
         else:
             query = query.filter(Nota.origen_audio.is_(None))
     
-    return query.order_by(Nota.fecha_clase.desc().nullslast(), Nota.fecha_creacion.desc()).offset(skip).limit(limit).all()
+    rows = query.order_by(Nota.fecha_clase.desc().nullslast(), Nota.fecha_creacion.desc()).offset(skip).limit(limit).all()
+
+    return [
+        {
+            "id": row.id,
+            "titulo": row.titulo,
+            "materia_id": row.materia_id,
+            "fecha_clase": row.fecha_clase,
+            "origen_audio": row.origen_audio,
+            "duracion_audio": row.duracion_audio,
+            "idioma_detectado": row.idioma_detectado,
+            "status": row.status,
+            "progreso": row.progreso,
+            "fecha_creacion": row.fecha_creacion,
+            "fecha_actualizacion": row.fecha_actualizacion,
+            "materia_nombre": row.materia_nombre,
+            "materia_color": row.materia_color,
+        }
+        for row in rows
+    ]
 
 
 @router.get("/recientes", response_model=List[NotaResponse])
@@ -286,7 +319,8 @@ def export_nota_pdf(
             detail=(
                 "Exportación PDF no disponible: WeasyPrint requiere librerías nativas de GTK/Cairo. "
                 "En Linux instale: `apt-get update && apt-get install -y libcairo2 libpango-1.0-0 "
-                "libgdk-pixbuf2.0-0 libgobject-2.0-0 shared-mime-info`. "
+                "libpangoft2-1.0-0 libharfbuzz-subset0 libgdk-pixbuf-2.0-0 libglib2.0-0 "
+                "libjpeg62-turbo libopenjp2-7 shared-mime-info`. "
                 "En Windows instale el 'GTK for Windows Runtime' desde "
                 "https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases"
             )

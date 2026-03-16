@@ -29,5 +29,20 @@ class MateriaResponse(MateriaBase):
 
     model_config = {"from_attributes": True}
 
+
+class MateriaListResponse(BaseModel):
+    """Respuesta liviana para listados de materias (sin contenido_html)."""
+    id: int
+    nombre: str
+    descripcion: Optional[str] = None
+    color: Optional[str] = None
+    usuario_id: int
+    fecha_creacion: datetime
+    total_notas: int = 0
+    total_tareas: int = 0
+
+    model_config = {"from_attributes": True}
+
+
 class MateriaDetail(MateriaResponse):
     total_archivos: int = 0

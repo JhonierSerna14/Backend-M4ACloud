@@ -74,6 +74,26 @@ class NotaResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NotaListResponse(BaseModel):
+    """Respuesta liviana para listados de notas (sin contenido completo)."""
+    id: int
+    titulo: str
+    materia_id: int
+    fecha_clase: Optional[date] = None
+
+    origen_audio: Optional[str] = None
+    duracion_audio: Optional[int] = None
+    idioma_detectado: Optional[str] = None
+
+    status: Optional[str] = None
+    progreso: Optional[int] = 0
+
+    fecha_creacion: datetime
+    fecha_actualizacion: Optional[datetime] = None
+    materia_nombre: Optional[str] = None
+    materia_color: Optional[str] = None
+
+
 class NotaDetail(NotaResponse):
     """Nota con sus adjuntos."""
     adjuntos: List[AdjuntoResponse] = []

@@ -4,6 +4,7 @@ Autenticados con X-Worker-Key header (secret key compartida).
 El worker corre en la PC del usuario (con GPU) y hace polling a estos endpoints.
 """
 from typing import Optional
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
@@ -80,9 +81,59 @@ async def get_next_job(
 ):
     """
     Devuelve el trabajo de transcripción pendiente más antiguo (status=queued).
+    
+    TAMBIÉN detecta tareas huérfanas (status=processing pero sin heartbeat reciente)
+    y las recupera automáticamente si no han superado el máximo de reintentos.
+    
     Devuelve null si no hay trabajos en cola.
     El worker debe llamar a /jobs/{id}/claim inmediatamente después.
     """
+    # 1. Buscar tareas huérfanas (processing con timeout expirado)
+    timeout_minutes = settings.WORKER_ORPHAN_TASK_TIMEOUT_MINUTES
+    max_retries = settings.WORKER_MAX_RETRY_ATTEMPTS
+    timeout_threshold = func.now() - timedelta(minutes=timeout_minutes)
+    
+    huerfana = (
+        db.query(Nota)
+        .join(Materia)
+        .filter(
+            Nota.status == "processing",
+            Nota.processing_started_at <= timeout_threshold,
+            Nota.processing_attempts < max_retries
+        )
+        .order_by(Nota.processing_started_at.asc())
+        .first()
+    )
+    
+    if huerfana:
+        # Recuperar tarea huérfana: volver a queued e incrementar intentos
+        huerfana.status = "queued"
+        huerfana.processing_attempts += 1
+        huerfana.progreso = 0
+        huerfana.status_message = f"Tarea recuperada de error (reintento #{huerfana.processing_attempts})"
+        huerfana.processing_started_at = None
+        db.commit()
+        
+        logger.warning(
+            f"🔄 Tarea huérfana recuperada: nota_id={huerfana.id} "
+            f"(attempt {huerfana.processing_attempts}/{max_retries})"
+        )
+        
+        # Notificar al cliente
+        try:
+            asyncio.create_task(broadcast(
+                huerfana.id,
+                {
+                    "id": huerfana.id,
+                    "status": "queued",
+                    "progress": 0,
+                    "message": huerfana.status_message
+                }
+            ))
+        except Exception:
+            pass
+    
+    # 2. Buscar siguiente tarea en cola (queued)
     nota = (
         db.query(Nota)
         .join(Materia)
@@ -137,7 +188,12 @@ async def claim_job(
     """
     El worker reclama el trabajo: cambia status a 'processing'.
     Si ya está en processing (otro worker tomó el trabajo) devuelve 409.
+    
+    También establece processing_started_at para poder detectar tareas huérfanas
+    si el worker se cierra sin completar.
     """
+    from sqlalchemy import func
+    
     # Claim atómico para evitar doble toma del job por workers concurrentes.
     rows_updated = (
         db.query(Nota)
@@ -147,6 +203,7 @@ async def claim_job(
                 Nota.status: "processing",
                 Nota.progreso: 1,
                 Nota.status_message: "Worker reclamó el trabajo...",
+                Nota.processing_started_at: func.now(),
             },
             synchronize_session=False,
         )
@@ -251,6 +308,7 @@ async def complete_job(
     nota.progreso = 100
     nota.status = "done"
     nota.status_message = "Completado"
+    nota.processing_started_at = None  # Limpiar heartbeat
     if body.duration_seconds is not None:
         nota.duracion_audio = body.duration_seconds
     if body.language:
@@ -308,6 +366,7 @@ async def fail_job(
     nota.status = "queued"
     nota.progreso = 0
     nota.status_message = f"Pendiente de reintento #{retry_count}: {clean_error}"[:255]
+    nota.processing_started_at = None  # Limpiar heartbeat
     db.commit()
 
     try:

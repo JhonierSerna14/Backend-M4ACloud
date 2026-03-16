@@ -52,6 +52,14 @@ class Settings(BaseSettings):
 
     # Worker: clave secreta compartida con el worker local
     WORKER_SECRET_KEY: str = "change-me-worker-secret"
+    
+    # Worker: timeout para detectar tareas huérfanas (minutos)
+    # Si una tarea está en "processing" sin actualización después de este tiempo,
+    # se considera huérfana y se reinicia automáticamente
+    WORKER_ORPHAN_TASK_TIMEOUT_MINUTES: int = 30
+    
+    # Worker: máximo número de reintentos automáticos por tarea
+    WORKER_MAX_RETRY_ATTEMPTS: int = 3
 
     # CORS orígenes permitidos (separados por coma)
     BACKEND_CORS_ORIGINS: str = "*"

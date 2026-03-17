@@ -29,6 +29,9 @@ router = APIRouter(prefix="/notas/audio", tags=["audio"])
 
 # Constantes de validación
 ALLOWED_AUDIO_TYPES = ["audio/", "video/mp4", "video/webm"]
+ALLOWED_AUDIO_EXTENSIONS = {
+    ".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".flac", ".webm", ".mp4"
+}
 MIN_FILE_SIZE = 1024           # 1 KB mínimo para considerar un archivo válido
 ESTIMATED_MB_PER_MINUTE = 10  # ~10 MB por minuto (para mensaje informativo)
 
@@ -43,8 +46,18 @@ def _validate_audio_file(file: UploadFile) -> int:
     Raises:
         HTTPException si el archivo no es válido.
     """
-    is_valid_type = any(file.content_type.startswith(t) for t in ALLOWED_AUDIO_TYPES)
-    if not is_valid_type:
+    content_type = (file.content_type or "").lower()
+    file_ext = Path(file.filename or "").suffix.lower()
+
+    is_valid_type = any(content_type.startswith(t) for t in ALLOWED_AUDIO_TYPES)
+    is_generic_type = content_type in {"", "application/octet-stream", "binary/octet-stream"}
+    is_valid_ext = file_ext in ALLOWED_AUDIO_EXTENSIONS
+
+    # En móviles (especialmente share targets) algunos navegadores envían MIME genérico.
+    # Si la extensión es de audio conocida, permitimos continuar.
+    is_valid = is_valid_type or (is_generic_type and is_valid_ext)
+
+    if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Formato no soportado. Use archivos de audio (mp3, wav, m4a, etc.)"

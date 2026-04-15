@@ -40,5 +40,5 @@ markdown==3.8
 psutil==7.1.0
 prometheus_client==0.17.0
 
-# Dependencias para WebSocket (uvicorn necesita una librería WS)
-websockets==11.0.3
+# Dependencias para WebSocket (Supabase Realtime requiere websockets.asyncio)
+websockets>=13.1,<15

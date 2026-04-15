@@ -20,7 +20,16 @@ from app.core.config import settings
 
 def _get_supabase_client():
     """Devuelve un cliente Supabase inicializado (lazy import)."""
-    from supabase import create_client  # type: ignore
+    try:
+        from supabase import create_client  # type: ignore
+    except ModuleNotFoundError as e:
+        if e.name == "websockets.asyncio":
+            raise RuntimeError(
+                "Dependencia incompatible: falta 'websockets.asyncio'. "
+                "Instala dependencias del backend con una version compatible de websockets "
+                "(por ejemplo websockets>=13.1,<15)."
+            ) from e
+        raise
     return create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
 
 

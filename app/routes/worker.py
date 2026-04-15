@@ -60,9 +60,19 @@ class ProgressUpdate(BaseModel):
 
 class CompleteUpdate(BaseModel):
     html: str
-    transcript_text: Optional[str] = None  # None si era reprocess
+    transcript_text: Optional[str] = None  # None si el worker ya guardó la transcripción antes
     duration_seconds: Optional[int] = None
     language: Optional[str] = None
+
+
+class TranscriptUpdate(BaseModel):
+    transcript_text: str
+    duration_seconds: Optional[int] = None
+    language: Optional[str] = None
+
+
+class RetryUpdate(BaseModel):
+    error: str
 
 
 class FailUpdate(BaseModel):
@@ -264,6 +274,65 @@ async def update_progress(
     return {"ok": True}
 
 
+@router.post("/jobs/{nota_id}/transcript", status_code=status.HTTP_200_OK)
+async def save_transcript(
+    nota_id: int,
+    body: TranscriptUpdate,
+    db: Session = Depends(get_db),
+    _key: str = Depends(verify_worker_key),
+):
+    """
+    Persiste la transcripción apenas termina Whisper, antes de llamar a la IA.
+    Si la IA falla después, la nota ya queda lista para reprocess manual.
+    """
+    nota = db.query(Nota).join(Materia).filter(Nota.id == nota_id).first()
+    if not nota:
+        raise HTTPException(status_code=404, detail="Nota no encontrada")
+
+    transcript_text = (body.transcript_text or "").strip()
+    if not transcript_text:
+        raise HTTPException(status_code=400, detail="La transcripción está vacía")
+
+    if nota.transcripcion_path:
+        return {
+            "ok": True,
+            "nota_id": nota_id,
+            "transcript_path": nota.transcripcion_path,
+            "already_saved": True,
+        }
+
+    try:
+        materia = nota.materia or db.query(Materia).filter(Materia.id == nota.materia_id).first()
+        usuario_id = materia.usuario_id if materia else "unknown"
+
+        import uuid as uuid_lib
+
+        transcript_key = (
+            f"{usuario_id}/{nota.materia_id}/transcripts/"
+            f"transcript_{nota_id}_{uuid_lib.uuid4().hex[:8]}.txt"
+        )
+        storage_service.upload_bytes(
+            transcript_text.encode("utf-8"),
+            transcript_key,
+            "text/plain"
+        )
+        nota.transcripcion_path = transcript_key
+        if body.duration_seconds is not None and nota.duracion_audio is None:
+            nota.duracion_audio = body.duration_seconds
+        if body.language and not nota.idioma_detectado:
+            nota.idioma_detectado = body.language
+        if nota.status == "processing":
+            nota.progreso = max(nota.progreso or 0, 55)
+            nota.status_message = "Transcripción guardada. Generando resumen..."
+        db.commit()
+    except Exception as e:
+        logger.error(f"worker: no se pudo guardar transcript para nota_id={nota_id}: {e}")
+        raise HTTPException(status_code=500, detail="No se pudo guardar la transcripción") from e
+
+    logger.info(f"worker: transcript persistido para nota_id={nota_id} → {nota.transcripcion_path}")
+    return {"ok": True, "nota_id": nota_id, "transcript_path": nota.transcripcion_path}
+
+
 @router.post("/jobs/{nota_id}/complete", status_code=status.HTTP_200_OK)
 async def complete_job(
     nota_id: int,
@@ -274,24 +343,21 @@ async def complete_job(
     """
     El worker entrega el trabajo completado:
     - HTML del resumen académico
-    - Texto de transcripción (opcional, None si era reprocess)
     - Duración del audio e idioma detectado
     """
     nota = db.query(Nota).filter(Nota.id == nota_id).first()
     if not nota:
         raise HTTPException(status_code=404, detail="Nota no encontrada")
 
-    # Guardar transcript en storage (si viene uno nuevo)
-    if body.transcript_text:
+    if body.transcript_text and not nota.transcripcion_path:
         try:
-            materia_id = nota.materia_id
-            # Determinar usuario_id vía materia
-            materia = db.query(Materia).filter(Materia.id == materia_id).first()
+            materia = nota.materia or db.query(Materia).filter(Materia.id == nota.materia_id).first()
             usuario_id = materia.usuario_id if materia else "unknown"
 
             import uuid as uuid_lib
+
             transcript_key = (
-                f"{usuario_id}/{materia_id}/transcripts/"
+                f"{usuario_id}/{nota.materia_id}/transcripts/"
                 f"transcript_{nota_id}_{uuid_lib.uuid4().hex[:8]}.txt"
             )
             storage_service.upload_bytes(
@@ -300,9 +366,9 @@ async def complete_job(
                 "text/plain"
             )
             nota.transcripcion_path = transcript_key
-            logger.info(f"worker: transcript guardado en storage key={transcript_key}")
+            logger.info(f"worker: transcript guardado tardíamente en storage key={transcript_key}")
         except Exception as e:
-            logger.warning(f"worker: no se pudo guardar transcript: {e}")
+            logger.warning(f"worker: no se pudo guardar transcript tardíamente: {e}")
 
     nota.contenido = body.html
     nota.progreso = 100
@@ -338,6 +404,42 @@ async def complete_job(
 
     logger.info(f"worker: nota_id={nota_id} completada ✅")
     return {"ok": True, "nota_id": nota_id}
+
+
+@router.post("/jobs/{nota_id}/retry", status_code=status.HTTP_200_OK)
+async def retry_job(
+    nota_id: int,
+    body: RetryUpdate,
+    db: Session = Depends(get_db),
+    _key: str = Depends(verify_worker_key),
+):
+    """Marca la nota como retry cuando la IA falló pero la transcripción ya quedó guardada."""
+    nota = db.query(Nota).filter(Nota.id == nota_id).first()
+    if not nota:
+        raise HTTPException(status_code=404, detail="Nota no encontrada")
+
+    clean_error = (body.error or "Error desconocido").replace("\n", " ").strip()[:220]
+    nota.status = "retry"
+    nota.progreso = 100 if nota.transcripcion_path else 0
+    nota.status_message = f"Requiere reintento manual: {clean_error}"
+    nota.processing_started_at = None
+    db.commit()
+
+    try:
+        asyncio.create_task(broadcast(
+            nota_id,
+            {
+                "id": nota_id,
+                "status": "retry",
+                "progress": nota.progreso or 100,
+                "message": nota.status_message,
+            }
+        ))
+    except Exception:
+        pass
+
+    logger.warning(f"worker: nota_id={nota_id} marcada como retry: {clean_error}")
+    return {"ok": True, "retry": True}
 
 
 @router.post("/jobs/{nota_id}/fail", status_code=status.HTTP_200_OK)

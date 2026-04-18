@@ -25,6 +25,7 @@ from app.routes import (
     audio_router,
     dashboard_router,
     ws_router,
+    ws_sync_router,
 )
 from app.routes.uploads import router as uploads_router
 from app.routes.worker import router as worker_router
@@ -88,6 +89,7 @@ app.include_router(notas_router, prefix=settings.API_V1_PREFIX)
 app.include_router(archivos_router, prefix=settings.API_V1_PREFIX)
 app.include_router(audio_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ws_router, prefix=settings.API_V1_PREFIX)
+app.include_router(ws_sync_router, prefix=settings.API_V1_PREFIX)
 app.include_router(uploads_router, prefix=settings.API_V1_PREFIX)
 app.include_router(worker_router, prefix=settings.API_V1_PREFIX)
 

@@ -4,7 +4,7 @@ Autenticados con X-Worker-Key header (secret key compartida).
 El worker corre en la PC del usuario (con GPU) y hace polling a estos endpoints.
 """
 from typing import Optional
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel
@@ -16,6 +16,8 @@ from loguru import logger
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.ws import broadcast
+from app.core.user_ws import broadcast_user
+from app.core.sync_events import build_sync_event
 from app.models.nota import Nota
 from app.models.materia import Materia
 from app.services import storage_service
@@ -24,6 +26,17 @@ from app.services import dropbox_audio_service
 import asyncio
 
 router = APIRouter(prefix="/worker", tags=["worker"])
+
+
+def build_progress_event(nota_id: int, status: str, progress: int, message: Optional[str] = None):
+    return {
+        "id": nota_id,
+        "status": status,
+        "progress": progress,
+        "progreso": progress,
+        "message": message,
+        "occurred_at": datetime.utcnow().isoformat() + "Z",
+    }
 
 # ---------------------------------------------------------------------------
 # Autenticación del worker
@@ -140,6 +153,16 @@ async def get_next_job(
                     "message": huerfana.status_message
                 }
             ))
+            if huerfana.materia:
+                asyncio.create_task(broadcast_user(
+                    huerfana.materia.usuario_id,
+                    build_sync_event(
+                        action="update",
+                        entity="notas",
+                        entity_id=None,
+                        affected_collections=["notas", "dashboard"],
+                    )
+                ))
         except Exception:
             pass
     
@@ -235,8 +258,26 @@ async def claim_job(
     try:
         asyncio.create_task(broadcast(
             nota_id,
-            {"id": nota_id, "status": "processing", "progress": 1, "message": "Iniciando transcripción..."}
+            build_progress_event(
+                nota_id,
+                "processing",
+                1,
+                "Iniciando transcripción...",
+            )
         ))
+        
+        # Sincronizar cache del listado y el dashboard en todo el cliente
+        nota = db.query(Nota).join(Materia).filter(Nota.id == nota_id).first()
+        if nota and nota.materia:
+            asyncio.create_task(broadcast_user(
+                nota.materia.usuario_id,
+                build_sync_event(
+                    action="update",
+                    entity="notas",
+                    entity_id=None,
+                    affected_collections=["notas", "dashboard"],
+                )
+            ))
     except Exception:
         pass
 
@@ -266,7 +307,12 @@ async def update_progress(
     try:
         asyncio.create_task(broadcast(
             nota_id,
-            {"id": nota_id, "status": "processing", "progress": clamped, "message": body.message}
+            build_progress_event(
+                nota_id,
+                "processing",
+                clamped,
+                body.message,
+            )
         ))
     except Exception:
         pass
@@ -397,8 +443,23 @@ async def complete_job(
     try:
         asyncio.create_task(broadcast(
             nota_id,
-            {"id": nota_id, "status": "done", "progress": 100, "message": "Completado"}
+            build_progress_event(
+                nota_id,
+                "done",
+                100,
+                "Completado",
+            )
         ))
+        if nota.materia:
+            asyncio.create_task(broadcast_user(
+                nota.materia.usuario_id,
+                build_sync_event(
+                    action="update",
+                    entity="notas",
+                    entity_id=None,
+                    affected_collections=["notas", "dashboard"],
+                )
+            ))
     except Exception:
         pass
 
@@ -428,13 +489,23 @@ async def retry_job(
     try:
         asyncio.create_task(broadcast(
             nota_id,
-            {
-                "id": nota_id,
-                "status": "retry",
-                "progress": nota.progreso or 100,
-                "message": nota.status_message,
-            }
+            build_progress_event(
+                nota_id,
+                "retry",
+                nota.progreso or 100,
+                nota.status_message,
+            )
         ))
+        if nota.materia:
+            asyncio.create_task(broadcast_user(
+                nota.materia.usuario_id,
+                build_sync_event(
+                    action="update",
+                    entity="notas",
+                    entity_id=None,
+                    affected_collections=["notas", "dashboard"],
+                )
+            ))
     except Exception:
         pass
 
@@ -474,8 +545,23 @@ async def fail_job(
     try:
         asyncio.create_task(broadcast(
             nota_id,
-            {"id": nota_id, "status": "queued", "progress": 0, "message": nota.status_message}
+            build_progress_event(
+                nota_id,
+                "queued",
+                0,
+                nota.status_message,
+            )
         ))
+        if nota.materia:
+            asyncio.create_task(broadcast_user(
+                nota.materia.usuario_id,
+                build_sync_event(
+                    action="update",
+                    entity="notas",
+                    entity_id=None,
+                    affected_collections=["notas", "dashboard"],
+                )
+            ))
     except Exception:
         pass
 

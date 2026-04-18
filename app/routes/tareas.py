@@ -2,13 +2,15 @@
 Rutas para gestión de eventos académicos.
 CRUD completo con filtros por materia, tipo, estado y fecha.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.sync_events import build_sync_event
+from app.core.user_ws import broadcast_user
 from app.models.usuario import Usuario
 from app.models.materia import Materia
 from app.models.tarea import Tarea
@@ -18,9 +20,14 @@ from app.schemas.tarea import TareaCreate, TareaUpdate, TareaResponse, TareaEsta
 router = APIRouter(prefix="/tareas", tags=["tareas"])
 
 
+def _serialize_tarea(tarea: Tarea) -> dict:
+    return TareaResponse.model_validate(tarea).model_dump(mode="json")
+
+
 @router.post("/", response_model=TareaResponse, status_code=status.HTTP_201_CREATED)
 def create_tarea(
     tarea_data: TareaCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -47,6 +54,18 @@ def create_tarea(
     db.add(new_tarea)
     db.commit()
     db.refresh(new_tarea)
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="created",
+            entity="tarea",
+            entity_id=new_tarea.id,
+            payload=_serialize_tarea(new_tarea),
+            affected_collections=["tareas", "dashboard", "calendario", "materias", f"tarea:{new_tarea.id}"],
+        ),
+    )
     return new_tarea
 
 
@@ -171,6 +190,7 @@ def get_tarea(
 def update_tarea(
     tarea_id: int,
     tarea_data: TareaUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -205,12 +225,25 @@ def update_tarea(
     
     db.commit()
     db.refresh(tarea)
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="updated",
+            entity="tarea",
+            entity_id=tarea.id,
+            payload=_serialize_tarea(tarea),
+            affected_collections=["tareas", "dashboard", "calendario", "materias", f"tarea:{tarea.id}"],
+        ),
+    )
     return tarea
 
 
-@router.post('/reorder', status_code=status.HTTP_204_NO_CONTENT)
+@router.post('/reorder', status_code=status.HTTP_200_OK)
 def reorder_tareas(
     ids: List[int],
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -227,12 +260,25 @@ def reorder_tareas(
             tarea.orden = index
 
     db.commit()
-    return None
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="reordered",
+            entity="tarea",
+            entity_id=None,
+            payload={"ordered_ids": ids},
+            affected_collections=["tareas", "dashboard", "calendario"],
+        ),
+    )
+    return {"ok": True, "ids": ids, "updated": len(tareas)}
 
 
-@router.delete("/{tarea_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{tarea_id}", status_code=status.HTTP_200_OK)
 def delete_tarea(
     tarea_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -245,6 +291,20 @@ def delete_tarea(
     if not tarea:
         raise HTTPException(status_code=404, detail="Tarea no encontrada")
     
+    materia_id = tarea.materia_id
+    estado = tarea.estado.value
     db.delete(tarea)
     db.commit()
-    return None
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="deleted",
+            entity="tarea",
+            entity_id=tarea_id,
+            payload={"id": tarea_id, "materia_id": materia_id, "estado": estado},
+            affected_collections=["tareas", "dashboard", "calendario", "materias", f"tarea:{tarea_id}"],
+        ),
+    )
+    return {"ok": True, "id": tarea_id, "materia_id": materia_id}

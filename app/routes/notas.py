@@ -18,7 +18,8 @@ from loguru import logger
 from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.core.config import settings
-from app.core.ws import broadcast
+from app.core.sync_events import build_sync_event
+from app.core.user_ws import broadcast_user
 from app.models.usuario import Usuario
 from app.models.materia import Materia
 from app.models.nota import Nota, Adjunto
@@ -30,9 +31,19 @@ router = APIRouter(prefix="/notas", tags=["notas"])
 ALLOWED_ADJUNTO_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "application/pdf"}
 
 
+def _serialize_nota(nota: Nota, materia: Optional[Materia] = None) -> dict:
+    payload = NotaResponse.model_validate(nota).model_dump(mode="json")
+    resolved_materia = materia or getattr(nota, "materia", None)
+    if resolved_materia:
+        payload["materia_nombre"] = resolved_materia.nombre
+        payload["materia_color"] = resolved_materia.color
+    return payload
+
+
 @router.post("/", response_model=NotaResponse, status_code=status.HTTP_201_CREATED)
 def create_nota(
     nota_data: NotaCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -54,6 +65,18 @@ def create_nota(
     db.add(nota)
     db.commit()
     db.refresh(nota)
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="created",
+            entity="nota",
+            entity_id=nota.id,
+            payload=_serialize_nota(nota, materia),
+            affected_collections=["notas", "dashboard", "materias", f"nota:{nota.id}"],
+        ),
+    )
     return nota
 
 
@@ -218,7 +241,14 @@ def get_nota_status(
     if not nota:
         raise HTTPException(status_code=404, detail="Nota no encontrada")
 
-    return {"id": nota.id, "status": nota.status, "progress": nota.progreso, "message": nota.status_message}
+    return {
+        "id": nota.id,
+        "status": nota.status,
+        "progress": nota.progreso,
+        "progreso": nota.progreso,
+        "message": nota.status_message,
+        "updated_at": nota.fecha_actualizacion,
+    }
 
 
 @router.post("/{nota_id}/reprocess", response_model=NotaResponse)
@@ -260,6 +290,7 @@ def reprocess_nota(
 def update_nota(
     nota_id: int,
     nota_data: NotaUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -272,6 +303,7 @@ def update_nota(
     if not nota:
         raise HTTPException(status_code=404, detail="Nota no encontrada")
     
+    materia: Optional[Materia] = None
     if nota_data.materia_id:
         materia = db.query(Materia).filter(
             Materia.id == nota_data.materia_id,
@@ -285,6 +317,21 @@ def update_nota(
     
     db.commit()
     db.refresh(nota)
+
+    if materia is None:
+        materia = db.query(Materia).filter(Materia.id == nota.materia_id).first()
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="updated",
+            entity="nota",
+            entity_id=nota.id,
+            payload=_serialize_nota(nota, materia),
+            affected_collections=["notas", "dashboard", "materias", f"nota:{nota.id}"],
+        ),
+    )
     return nota
 
 
@@ -628,6 +675,7 @@ def delete_adjunto(
 @router.delete("/{nota_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_nota(
     nota_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -646,6 +694,19 @@ def delete_nota(
         if file_path.exists():
             file_path.unlink()
     
+    materia_id = nota.materia_id
     db.delete(nota)
     db.commit()
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="deleted",
+            entity="nota",
+            entity_id=nota_id,
+            payload={"id": nota_id, "materia_id": materia_id},
+            affected_collections=["notas", "dashboard", "materias", f"nota:{nota_id}"],
+        ),
+    )
     return None

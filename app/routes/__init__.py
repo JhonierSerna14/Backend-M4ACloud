@@ -6,3 +6,4 @@ from app.routes.archivos import router as archivos_router
 from app.routes.audio import router as audio_router
 from app.routes.dashboard import router as dashboard_router
 from app.routes.ws_notifications import router as ws_router
+from app.routes.ws_sync import router as ws_sync_router

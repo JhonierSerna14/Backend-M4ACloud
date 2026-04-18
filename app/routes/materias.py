@@ -4,13 +4,15 @@ CRUD completo + estadísticas por materia.
 """
 import random
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.sync_events import build_sync_event
+from app.core.user_ws import broadcast_user
 from app.models.usuario import Usuario
 from app.models.materia import Materia
 from app.models.nota import Nota
@@ -30,6 +32,7 @@ DEFAULT_PALETTE = [
 @router.post("/", response_model=MateriaResponse, status_code=status.HTTP_201_CREATED)
 def create_materia(
     materia_data: MateriaCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -68,6 +71,19 @@ def create_materia(
     db.add(new_materia)
     db.commit()
     db.refresh(new_materia)
+
+    payload = MateriaResponse.model_validate(new_materia).model_dump(mode="json")
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="created",
+            entity="materia",
+            entity_id=new_materia.id,
+            payload=payload,
+            affected_collections=["materias", "dashboard", f"materia:{new_materia.id}"],
+        ),
+    )
     return new_materia
 
 
@@ -143,6 +159,7 @@ def get_materia(
 def update_materia(
     materia_id: int,
     materia_data: MateriaUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -171,12 +188,26 @@ def update_materia(
     
     db.commit()
     db.refresh(materia)
+
+    payload = MateriaResponse.model_validate(materia).model_dump(mode="json")
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="updated",
+            entity="materia",
+            entity_id=materia.id,
+            payload=payload,
+            affected_collections=["materias", "dashboard", f"materia:{materia.id}"],
+        ),
+    )
     return materia
 
 
-@router.delete("/{materia_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{materia_id}", status_code=status.HTTP_200_OK)
 def delete_materia(
     materia_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -188,7 +219,36 @@ def delete_materia(
     
     if not materia:
         raise HTTPException(status_code=404, detail="Materia no encontrada")
+
+    nota_ids = [nota.id for nota in materia.notas]
+    tarea_ids = [tarea.id for tarea in materia.tareas]
+    archivo_ids = [archivo.id for archivo in materia.archivos]
+    delete_payload = {
+        "id": materia_id,
+        "removed_counts": {
+            "notas": len(nota_ids),
+            "tareas": len(tarea_ids),
+            "archivos": len(archivo_ids),
+        },
+        "child_ids": {
+            "notas": nota_ids,
+            "tareas": tarea_ids,
+            "archivos": archivo_ids,
+        },
+    }
     
     db.delete(materia)
     db.commit()
-    return None
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="deleted",
+            entity="materia",
+            entity_id=materia_id,
+            payload=delete_payload,
+            affected_collections=["materias", "dashboard", "notas", "tareas", "calendario", f"materia:{materia_id}"],
+        ),
+    )
+    return {"ok": True, "id": materia_id}

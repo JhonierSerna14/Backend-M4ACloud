@@ -9,13 +9,15 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, Form
+from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File, HTTPException, status, Form
 from sqlalchemy.orm import Session
 from loguru import logger
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.core.config import settings
+from app.core.sync_events import build_sync_event
+from app.core.user_ws import broadcast_user
 from app.models.usuario import Usuario
 from app.models.materia import Materia
 from app.models.nota import Nota
@@ -90,6 +92,7 @@ def _validate_audio_file(file: UploadFile) -> int:
 
 @router.post("/upload", response_model=NotaResponse, status_code=status.HTTP_202_ACCEPTED)
 async def upload_audio(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Archivo de audio a transcribir"),
     materia_id: int = Form(..., description="ID de la materia"),
     titulo: str = Form(..., min_length=1, max_length=200, description="Título de la nota"),
@@ -202,6 +205,22 @@ Esta nota se actualizará automáticamente cuando esté lista.""",
     db.add(nota)
     db.commit()
     db.refresh(nota)
+
+    background_tasks.add_task(
+        broadcast_user,
+        current_user.id,
+        build_sync_event(
+            action="created",
+            entity="nota",
+            entity_id=nota.id,
+            payload={
+                **NotaResponse.model_validate(nota).model_dump(mode="json"),
+                "materia_nombre": materia.nombre,
+                "materia_color": materia.color,
+            },
+            affected_collections=["notas", "dashboard", "materias", f"nota:{nota.id}"],
+        ),
+    )
 
     logger.info(
         f"🎬 Audio encolado | nota={nota.id} | key={storage_key} | user={current_user.id}"

@@ -45,7 +45,9 @@ async def nota_progress_ws(websocket: WebSocket, nota_id: int, token: str = Quer
             "id": nota.id,
             "status": nota.status,
             "progress": nota.progreso,
+            "progreso": nota.progreso,
             "message": nota.status_message,
+            "updated_at": nota.fecha_actualizacion,
         }
     except HTTPException as ex:
         logger.warning(f"WS auth failed for nota={nota_id}: {ex.detail}")

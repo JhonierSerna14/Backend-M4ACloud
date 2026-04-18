@@ -2,12 +2,13 @@
 Rutas para gestión de notas/lienzos de clase.
 CRUD completo con adjuntos, búsqueda por fecha y exportación PDF.
 """
+import asyncio
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_, func
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 import uuid
 import shutil
 import os
@@ -20,6 +21,7 @@ from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.sync_events import build_sync_event
 from app.core.user_ws import broadcast_user
+from app.core.ws import broadcast
 from app.models.usuario import Usuario
 from app.models.materia import Materia
 from app.models.nota import Nota, Adjunto
@@ -281,6 +283,31 @@ def reprocess_nota(
     nota.contenido = "# ⏳ En Cola para Reprocesar\n\nEsperando al worker para regenerar la transcripción y el resumen."
     db.commit()
     db.refresh(nota)
+
+    try:
+        asyncio.create_task(broadcast(
+            nota.id,
+            {
+                "id": nota.id,
+                "status": "queued",
+                "progress": 0,
+                "progreso": 0,
+                "message": nota.status_message,
+                "occurred_at": datetime.utcnow().isoformat() + "Z",
+            }
+        ))
+        if nota.materia:
+            asyncio.create_task(broadcast_user(
+                nota.materia.usuario_id,
+                build_sync_event(
+                    action="update",
+                    entity="notas",
+                    entity_id=None,
+                    affected_collections=["notas", "dashboard"],
+                )
+            ))
+    except Exception:
+        pass
 
     logger.info(f"🔄 Nota {nota.id} encolada para reprocesamiento")
     return nota

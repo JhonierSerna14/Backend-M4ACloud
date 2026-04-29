@@ -21,7 +21,6 @@ from app.core.user_ws import broadcast_user
 from app.models.usuario import Usuario
 from app.models.materia import Materia
 from app.models.nota import Nota
-from app.models.archivo import Archivo
 from app.schemas.nota import NotaResponse
 from app.services import storage_service
 from app.services import dropbox_audio_service
@@ -160,18 +159,6 @@ async def upload_audio(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Error al guardar el archivo de audio"
         )
-
-    # Registrar archivo en DB para trazabilidad
-    db_archivo = Archivo(
-        nombre=file.filename,
-        ruta=storage_key,
-        tipo=file.content_type,
-        tamaño=file_size,
-        materia_id=materia_id
-    )
-    db.add(db_archivo)
-    db.commit()
-    db.refresh(db_archivo)
 
     # Parsear fecha_clase si se proporciona
     fecha_clase_parsed = None

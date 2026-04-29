@@ -3,6 +3,7 @@ Endpoints exclusivos para el worker local de transcripción.
 Autenticados con X-Worker-Key header (secret key compartida).
 El worker corre en la PC del usuario (con GPU) y hace polling a estos endpoints.
 """
+import uuid
 from typing import Optional
 from datetime import timedelta, datetime
 
@@ -22,8 +23,6 @@ from app.models.nota import Nota
 from app.models.materia import Materia
 from app.services import storage_service
 from app.services import dropbox_audio_service
-
-import asyncio
 
 router = APIRouter(prefix="/worker", tags=["worker"])
 
@@ -90,6 +89,35 @@ class RetryUpdate(BaseModel):
 
 class FailUpdate(BaseModel):
     error: str
+
+
+# ---------------------------------------------------------------------------
+# Helper interno
+# ---------------------------------------------------------------------------
+
+
+def _upload_transcript_to_storage(nota: Nota, transcript_text: str, db) -> str:
+    """
+    Sube el texto de transcripción al storage y actualiza nota.transcripcion_path.
+
+    Returns:
+        La clave de storage donde quedó guardada.
+    Raises:
+        Exception propagada si falla la subida al storage.
+    """
+    materia = nota.materia or db.query(Materia).filter(Materia.id == nota.materia_id).first()
+    usuario_id = materia.usuario_id if materia else "unknown"
+    transcript_key = (
+        f"{usuario_id}/{nota.materia_id}/transcripts/"
+        f"transcript_{nota.id}_{uuid.uuid4().hex[:8]}.txt"
+    )
+    storage_service.upload_bytes(
+        transcript_text.encode("utf-8"),
+        transcript_key,
+        "text/plain",
+    )
+    nota.transcripcion_path = transcript_key
+    return transcript_key
 
 
 # ---------------------------------------------------------------------------
@@ -163,8 +191,8 @@ async def get_next_job(
                         affected_collections=["notas", "dashboard"],
                     )
                 ))
-        except Exception:
-            pass
+        except Exception as _exc:
+            logger.debug(f"WS broadcast error (non-critical): {_exc}")
     
     # 2. Buscar siguiente tarea en cola (queued)
     nota = (
@@ -225,8 +253,6 @@ async def claim_job(
     También establece processing_started_at para poder detectar tareas huérfanas
     si el worker se cierra sin completar.
     """
-    from sqlalchemy import func
-    
     # Claim atómico para evitar doble toma del job por workers concurrentes.
     rows_updated = (
         db.query(Nota)
@@ -278,10 +304,8 @@ async def claim_job(
                     affected_collections=["notas", "dashboard"],
                 )
             ))
-    except Exception:
-        pass
-
-    logger.info(f"worker: nota_id={nota_id} claimed → processing")
+    except Exception as _exc:
+        logger.debug(f"WS broadcast error (non-critical): {_exc}")
     return {"ok": True, "nota_id": nota_id}
 
 
@@ -314,8 +338,8 @@ async def update_progress(
                 body.message,
             )
         ))
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug(f"WS broadcast error (non-critical): {_exc}")
 
     return {"ok": True}
 
@@ -348,21 +372,7 @@ async def save_transcript(
         }
 
     try:
-        materia = nota.materia or db.query(Materia).filter(Materia.id == nota.materia_id).first()
-        usuario_id = materia.usuario_id if materia else "unknown"
-
-        import uuid as uuid_lib
-
-        transcript_key = (
-            f"{usuario_id}/{nota.materia_id}/transcripts/"
-            f"transcript_{nota_id}_{uuid_lib.uuid4().hex[:8]}.txt"
-        )
-        storage_service.upload_bytes(
-            transcript_text.encode("utf-8"),
-            transcript_key,
-            "text/plain"
-        )
-        nota.transcripcion_path = transcript_key
+        transcript_key = _upload_transcript_to_storage(nota, transcript_text, db)
         if body.duration_seconds is not None and nota.duracion_audio is None:
             nota.duracion_audio = body.duration_seconds
         if body.language and not nota.idioma_detectado:
@@ -397,21 +407,7 @@ async def complete_job(
 
     if body.transcript_text and not nota.transcripcion_path:
         try:
-            materia = nota.materia or db.query(Materia).filter(Materia.id == nota.materia_id).first()
-            usuario_id = materia.usuario_id if materia else "unknown"
-
-            import uuid as uuid_lib
-
-            transcript_key = (
-                f"{usuario_id}/{nota.materia_id}/transcripts/"
-                f"transcript_{nota_id}_{uuid_lib.uuid4().hex[:8]}.txt"
-            )
-            storage_service.upload_bytes(
-                body.transcript_text.encode("utf-8"),
-                transcript_key,
-                "text/plain"
-            )
-            nota.transcripcion_path = transcript_key
+            transcript_key = _upload_transcript_to_storage(nota, body.transcript_text, db)
             logger.info(f"worker: transcript guardado tardíamente en storage key={transcript_key}")
         except Exception as e:
             logger.warning(f"worker: no se pudo guardar transcript tardíamente: {e}")
@@ -460,8 +456,8 @@ async def complete_job(
                     affected_collections=["notas", "dashboard"],
                 )
             ))
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug(f"WS broadcast error (non-critical): {_exc}")
 
     logger.info(f"worker: nota_id={nota_id} completada ✅")
     return {"ok": True, "nota_id": nota_id}
@@ -506,8 +502,8 @@ async def retry_job(
                     affected_collections=["notas", "dashboard"],
                 )
             ))
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug(f"WS broadcast error (non-critical): {_exc}")
 
     logger.warning(f"worker: nota_id={nota_id} marcada como retry: {clean_error}")
     return {"ok": True, "retry": True}
@@ -525,13 +521,9 @@ async def fail_job(
     if not nota:
         raise HTTPException(status_code=404, detail="Nota no encontrada")
 
-    previous_message = (nota.status_message or "").strip()
-    retry_count = 1
-    if "reintento #" in previous_message.lower():
-        try:
-            retry_count = int(previous_message.lower().split("reintento #", 1)[1].split(":", 1)[0].strip()) + 1
-        except Exception:
-            retry_count = 1
+    # Usar el campo numérico ya existente en lugar de parsear el texto del mensaje
+    nota.processing_attempts = (nota.processing_attempts or 0) + 1
+    retry_count = nota.processing_attempts
 
     clean_error = (body.error or "Error desconocido").replace("\n", " ").strip()
     clean_error = clean_error[:180]
@@ -562,8 +554,8 @@ async def fail_job(
                     affected_collections=["notas", "dashboard"],
                 )
             ))
-    except Exception:
-        pass
+    except Exception as _exc:
+        logger.debug(f"WS broadcast error (non-critical): {_exc}")
 
     logger.warning(f"worker: nota_id={nota_id} reencolada por fallo (reintento #{retry_count}): {clean_error}")
     return {"ok": True, "requeued": True, "retry_count": retry_count}

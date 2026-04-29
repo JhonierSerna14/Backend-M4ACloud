@@ -64,6 +64,7 @@ class NotaResponse(BaseModel):
 
     # Estado y progreso
     status: Optional[str] = None
+    status_message: Optional[str] = None
     progreso: Optional[int] = 0
     
     # Timestamps

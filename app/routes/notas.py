@@ -257,11 +257,20 @@ def get_nota_status(
 def reprocess_nota(
     nota_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    force_retranscribe: bool = Query(
+        False,
+        description=(
+            "Si True, descarta la transcripción guardada y retranscribe "
+            "desde el audio original (más lento pero útil si la transcripción era errónea)."
+        ),
+    ),
 ):
     """
     Encola una nota para reprocesamiento por el worker local.
-    El worker retomará el audio existente y regenerará transcripción + resumen.
+
+    Por defecto reutiliza la transcripción ya guardada (más rápido).
+    Usa force_retranscribe=true para forzar retranscripción completa desde el audio.
     """
     nota = db.query(Nota).join(Materia).options(joinedload(Nota.materia)).filter(
         Nota.id == nota_id,
@@ -276,6 +285,10 @@ def reprocess_nota(
 
     if nota.status in ("processing", "queued"):
         raise HTTPException(status_code=409, detail="La nota ya está siendo procesada o en cola")
+
+    if force_retranscribe and nota.transcripcion_path:
+        nota.transcripcion_path = None
+        logger.info(f"🔄 Nota {nota.id}: transcripción descartada por force_retranscribe")
 
     nota.status = "queued"
     nota.progreso = 0

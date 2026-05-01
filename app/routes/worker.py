@@ -3,6 +3,7 @@ Endpoints exclusivos para el worker local de transcripción.
 Autenticados con X-Worker-Key header (secret key compartida).
 El worker corre en la PC del usuario (con GPU) y hace polling a estos endpoints.
 """
+import asyncio
 import uuid
 from typing import Optional
 from datetime import timedelta, datetime
@@ -172,7 +173,7 @@ async def get_next_job(
         
         # Notificar al cliente
         try:
-            asyncio.create_task(broadcast(
+            await broadcast(
                 huerfana.id,
                 {
                     "id": huerfana.id,
@@ -180,9 +181,9 @@ async def get_next_job(
                     "progress": 0,
                     "message": huerfana.status_message
                 }
-            ))
+            )
             if huerfana.materia:
-                asyncio.create_task(broadcast_user(
+                await broadcast_user(
                     huerfana.materia.usuario_id,
                     build_sync_event(
                         action="update",
@@ -190,7 +191,7 @@ async def get_next_job(
                         entity_id=None,
                         affected_collections=["notas", "dashboard"],
                     )
-                ))
+                )
         except Exception as _exc:
             logger.debug(f"WS broadcast error (non-critical): {_exc}")
     
@@ -282,7 +283,7 @@ async def claim_job(
     db.commit()
 
     try:
-        asyncio.create_task(broadcast(
+        await broadcast(
             nota_id,
             build_progress_event(
                 nota_id,
@@ -290,12 +291,12 @@ async def claim_job(
                 1,
                 "Iniciando transcripción...",
             )
-        ))
+        )
         
         # Sincronizar cache del listado y el dashboard en todo el cliente
         nota = db.query(Nota).join(Materia).filter(Nota.id == nota_id).first()
         if nota and nota.materia:
-            asyncio.create_task(broadcast_user(
+            await broadcast_user(
                 nota.materia.usuario_id,
                 build_sync_event(
                     action="update",
@@ -303,7 +304,7 @@ async def claim_job(
                     entity_id=None,
                     affected_collections=["notas", "dashboard"],
                 )
-            ))
+            )
     except Exception as _exc:
         logger.debug(f"WS broadcast error (non-critical): {_exc}")
     return {"ok": True, "nota_id": nota_id}
@@ -329,7 +330,7 @@ async def update_progress(
 
     # Broadcast WS a clientes conectados
     try:
-        asyncio.create_task(broadcast(
+        await broadcast(
             nota_id,
             build_progress_event(
                 nota_id,
@@ -337,7 +338,7 @@ async def update_progress(
                 clamped,
                 body.message,
             )
-        ))
+        )
     except Exception as _exc:
         logger.debug(f"WS broadcast error (non-critical): {_exc}")
 
@@ -437,7 +438,7 @@ async def complete_job(
             logger.warning(f"worker: no se pudo eliminar audio: {e}")
 
     try:
-        asyncio.create_task(broadcast(
+        await broadcast(
             nota_id,
             build_progress_event(
                 nota_id,
@@ -445,9 +446,9 @@ async def complete_job(
                 100,
                 "Completado",
             )
-        ))
+        )
         if nota.materia:
-            asyncio.create_task(broadcast_user(
+            await broadcast_user(
                 nota.materia.usuario_id,
                 build_sync_event(
                     action="update",
@@ -455,7 +456,7 @@ async def complete_job(
                     entity_id=None,
                     affected_collections=["notas", "dashboard"],
                 )
-            ))
+            )
     except Exception as _exc:
         logger.debug(f"WS broadcast error (non-critical): {_exc}")
 
@@ -483,7 +484,7 @@ async def retry_job(
     db.commit()
 
     try:
-        asyncio.create_task(broadcast(
+        await broadcast(
             nota_id,
             build_progress_event(
                 nota_id,
@@ -491,9 +492,9 @@ async def retry_job(
                 nota.progreso or 100,
                 nota.status_message,
             )
-        ))
+        )
         if nota.materia:
-            asyncio.create_task(broadcast_user(
+            await broadcast_user(
                 nota.materia.usuario_id,
                 build_sync_event(
                     action="update",
@@ -501,7 +502,7 @@ async def retry_job(
                     entity_id=None,
                     affected_collections=["notas", "dashboard"],
                 )
-            ))
+            )
     except Exception as _exc:
         logger.debug(f"WS broadcast error (non-critical): {_exc}")
 
@@ -535,7 +536,7 @@ async def fail_job(
     db.commit()
 
     try:
-        asyncio.create_task(broadcast(
+        await broadcast(
             nota_id,
             build_progress_event(
                 nota_id,
@@ -543,9 +544,9 @@ async def fail_job(
                 0,
                 nota.status_message,
             )
-        ))
+        )
         if nota.materia:
-            asyncio.create_task(broadcast_user(
+            await broadcast_user(
                 nota.materia.usuario_id,
                 build_sync_event(
                     action="update",
@@ -553,7 +554,7 @@ async def fail_job(
                     entity_id=None,
                     affected_collections=["notas", "dashboard"],
                 )
-            ))
+            )
     except Exception as _exc:
         logger.debug(f"WS broadcast error (non-critical): {_exc}")
 

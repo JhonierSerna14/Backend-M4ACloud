@@ -41,20 +41,10 @@ async def _safe_send(nota_id: int, ws: WebSocket, message: Any):
 
 
 async def broadcast(nota_id: int, message: Any):
-    # Fire-and-forget sends so slow clients don't block processing
     conns = list((_connections.get(nota_id) or set()))
     logger.debug(f"Broadcasting to nota {nota_id}, {len(conns)} connections: {message}")
-    for ws in conns:
-        # schedule _safe_send and don't await
-        try:
-            asyncio.create_task(_safe_send(nota_id, ws, message))
-        except Exception as e:
-            logger.warning(f"Failed to schedule WS send for nota {nota_id}: {e}")
-            # fallback: try to unregister
-            try:
-                await unregister(nota_id, ws)
-            except Exception:
-                pass
+    if conns:
+        await asyncio.gather(*[_safe_send(nota_id, ws, message) for ws in conns])
 
 
 async def get_connections_count(nota_id: int) -> int:

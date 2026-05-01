@@ -256,6 +256,7 @@ def get_nota_status(
 @router.post("/{nota_id}/reprocess", response_model=NotaResponse)
 def reprocess_nota(
     nota_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
     force_retranscribe: bool = Query(
@@ -298,7 +299,8 @@ def reprocess_nota(
     db.refresh(nota)
 
     try:
-        asyncio.create_task(broadcast(
+        background_tasks.add_task(
+            broadcast,
             nota.id,
             {
                 "id": nota.id,
@@ -308,9 +310,10 @@ def reprocess_nota(
                 "message": nota.status_message,
                 "occurred_at": datetime.utcnow().isoformat() + "Z",
             }
-        ))
+        )
         if nota.materia:
-            asyncio.create_task(broadcast_user(
+            background_tasks.add_task(
+                broadcast_user,
                 nota.materia.usuario_id,
                 build_sync_event(
                     action="update",
@@ -318,7 +321,7 @@ def reprocess_nota(
                     entity_id=None,
                     affected_collections=["notas", "dashboard"],
                 )
-            ))
+            )
     except Exception:
         pass
 

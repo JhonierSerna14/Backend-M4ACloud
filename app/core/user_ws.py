@@ -40,15 +40,8 @@ async def _safe_send_user(user_id: int, websocket: WebSocket, message: Any):
 
 async def broadcast_user(user_id: int, message: Any):
     conns = list((_user_connections.get(user_id) or set()))
-    for ws in conns:
-        try:
-            asyncio.create_task(_safe_send_user(user_id, ws, message))
-        except Exception as ex:
-            logger.warning(f"WS schedule user send failed user_id={user_id}: {ex}")
-            try:
-                await unregister_user(user_id, ws)
-            except Exception:
-                pass
+    if conns:
+        await asyncio.gather(*[_safe_send_user(user_id, ws, message) for ws in conns])
 
 
 async def get_user_connections_count(user_id: int) -> int:

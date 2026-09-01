@@ -1,5 +1,6 @@
 # Importar modelos para registrarlos con SQLAlchemy
 from app.models.usuario import Usuario
+from app.models.semestre import Semestre
 from app.models.materia import Materia
 from app.models.tarea import Tarea
 from app.models.nota import Nota, Adjunto

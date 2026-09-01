@@ -14,9 +14,17 @@ class Usuario(Base):
     is_active = Column(Boolean, default=True)
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
     fecha_actualizacion = Column(DateTime(timezone=True), onupdate=func.now())
+    semestre_actual_id = Column(Integer, ForeignKey("semestres.id"), nullable=True)
     
     # Relaciones
     materias = relationship("Materia", back_populates="usuario", cascade="all, delete-orphan")
+    semestres = relationship(
+        "Semestre",
+        back_populates="usuario",
+        cascade="all, delete-orphan",
+        foreign_keys="Semestre.usuario_id",
+    )
+    semestre_actual = relationship("Semestre", foreign_keys=[semestre_actual_id])
     
     def __repr__(self):
         return f"<Usuario {self.nombre}>"

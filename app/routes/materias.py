@@ -11,6 +11,7 @@ from typing import List, Optional
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.semestre import get_semestre_actual, require_editable_semestre
 from app.core.sync_events import build_sync_event
 from app.core.user_ws import broadcast_user
 from app.models.usuario import Usuario
@@ -37,10 +38,13 @@ def create_materia(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Crea una nueva materia con color único por usuario."""
-    # If color provided, validate uniqueness for this user
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
+    # If color provided, validate uniqueness for this semester
     if materia_data.color:
         exists = db.query(Materia).filter(
-            Materia.usuario_id == current_user.id,
+            Materia.semestre_id == semestre.id,
             Materia.color == materia_data.color
         ).first()
         if exists:
@@ -49,7 +53,7 @@ def create_materia(
     else:
         # Asignar primer color disponible de la paleta
         used = {m.color for m in db.query(Materia).filter(
-            Materia.usuario_id == current_user.id, Materia.color.isnot(None)
+            Materia.semestre_id == semestre.id, Materia.color.isnot(None)
         ).all()}
         chosen_color = next((c for c in DEFAULT_PALETTE if c not in used), None)
         if not chosen_color:
@@ -66,6 +70,7 @@ def create_materia(
         nombre=materia_data.nombre,
         descripcion=materia_data.descripcion,
         usuario_id=current_user.id,
+        semestre_id=semestre.id,
         color=chosen_color
     )
     db.add(new_materia)
@@ -95,12 +100,17 @@ def get_materias(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Lista materias del usuario con búsqueda opcional y counters de notas/tareas."""
+    """Lista materias del semestre activo con búsqueda opcional y counters de notas/tareas."""
+    semestre = get_semestre_actual(db, current_user)
+
     # Subqueries para contar notas y tareas por materia sin duplicar rows
     sub_notas = db.query(func.count(Nota.id)).filter(Nota.materia_id == Materia.id).correlate(Materia).scalar_subquery()
     sub_tareas = db.query(func.count(Tarea.id)).filter(Tarea.materia_id == Materia.id).correlate(Materia).scalar_subquery()
 
-    base_q = db.query(Materia, sub_notas.label('notas_count'), sub_tareas.label('tareas_count')).filter(Materia.usuario_id == current_user.id)
+    base_q = db.query(Materia, sub_notas.label('notas_count'), sub_tareas.label('tareas_count')).filter(
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
+    )
 
     if search:
         base_q = base_q.filter(Materia.nombre.ilike(f"%{search}%"))
@@ -114,6 +124,7 @@ def get_materias(
             'nombre': materia.nombre,
             'descripcion': materia.descripcion,
             'usuario_id': materia.usuario_id,
+            'semestre_id': materia.semestre_id,
             'fecha_creacion': materia.fecha_creacion,
             'color': materia.color,
             'total_notas': int(notas_count or 0),
@@ -129,9 +140,11 @@ def get_materia(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene materia con contadores de elementos relacionados."""
+    semestre = get_semestre_actual(db, current_user)
     materia = db.query(Materia).filter(
         Materia.id == materia_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
     
     if not materia:
@@ -149,6 +162,7 @@ def get_materia(
         contenido_html=materia.contenido_html,
         color=materia.color,
         usuario_id=materia.usuario_id,
+        semestre_id=materia.semestre_id,
         fecha_creacion=materia.fecha_creacion,
         total_notas=notas_count,
         total_tareas=tareas_count,
@@ -164,9 +178,13 @@ def update_materia(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza una materia. Valida unicidad de color si se modifica."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     materia = db.query(Materia).filter(
         Materia.id == materia_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
     
     if not materia:
@@ -176,7 +194,7 @@ def update_materia(
 
     if "color" in update_data and update_data["color"]:
         exists = db.query(Materia).filter(
-            Materia.usuario_id == current_user.id,
+            Materia.semestre_id == semestre.id,
             Materia.color == update_data["color"],
             Materia.id != materia_id
         ).first()
@@ -212,9 +230,13 @@ def delete_materia(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina una materia y sus elementos asociados."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     materia = db.query(Materia).filter(
         Materia.id == materia_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
     
     if not materia:

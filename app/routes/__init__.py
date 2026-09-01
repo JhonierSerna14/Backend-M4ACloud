@@ -1,4 +1,5 @@
 from app.routes.auth import router as auth_router
+from app.routes.semestres import router as semestres_router
 from app.routes.materias import router as materias_router
 from app.routes.tareas import router as tareas_router
 from app.routes.notas import router as notas_router

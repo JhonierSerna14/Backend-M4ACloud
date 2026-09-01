@@ -9,6 +9,7 @@ from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.semestre import get_semestre_actual
 from app.models.usuario import Usuario
 from app.models.materia import Materia
 from app.models.nota import Nota
@@ -34,28 +35,34 @@ def get_dashboard(
     """
     hoy = date.today()
     fin_semana = hoy + timedelta(days=7)
+    semestre = get_semestre_actual(db, current_user)
     
     # --- Estadísticas ---
     total_materias = db.query(func.count(Materia.id)).filter(
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).scalar()
     
     total_notas = db.query(func.count(Nota.id)).join(Materia).filter(
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).scalar()
     
     total_tareas = db.query(func.count(Tarea.id)).join(Materia).filter(
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).scalar()
     
     tareas_pendientes = db.query(func.count(Tarea.id)).join(Materia).filter(
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
         Tarea.estado != TareaEstado.COMPLETADA
     ).scalar()
     
     # --- Eventos próximos (7 días) ---
     proximos_eventos = db.query(Tarea).join(Materia).filter(
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
         Tarea.estado != TareaEstado.COMPLETADA,
         Tarea.fecha_limite >= hoy,
         Tarea.fecha_limite <= fin_semana
@@ -63,13 +70,19 @@ def get_dashboard(
     
     # --- Notas recientes ---
     notas_recientes = db.query(Nota).join(Materia).filter(
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).order_by(Nota.fecha_actualizacion.desc().nullslast(), Nota.fecha_creacion.desc()).limit(5).all()
     
     return {
         "usuario": {
             "nombre": current_user.nombre,
             "email": current_user.email
+        },
+        "semestre_actual": {
+            "id": semestre.id,
+            "codigo": semestre.codigo,
+            "nombre": semestre.nombre,
         },
         "total_materias": total_materias,
         "total_notas": total_notas,
@@ -127,10 +140,12 @@ def get_hoy(
     """
     hoy = date.today()
     manana = hoy + timedelta(days=1)
+    semestre = get_semestre_actual(db, current_user)
     
     # Eventos de hoy
     eventos_hoy = db.query(Tarea).join(Materia).filter(
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
         Tarea.estado != TareaEstado.COMPLETADA,
         Tarea.fecha_limite == hoy
     ).order_by(Tarea.hora_limite.asc().nullslast(), Tarea.prioridad.desc()).all()
@@ -138,6 +153,7 @@ def get_hoy(
     # Eventos de mañana
     eventos_manana = db.query(Tarea).join(Materia).filter(
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
         Tarea.estado != TareaEstado.COMPLETADA,
         Tarea.fecha_limite == manana
     ).order_by(Tarea.hora_limite.asc().nullslast(), Tarea.prioridad.desc()).all()

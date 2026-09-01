@@ -15,11 +15,11 @@ from loguru import logger
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.semestre import get_materia_editable
 from app.core.config import settings
 from app.core.sync_events import build_sync_event
 from app.core.user_ws import broadcast_user
 from app.models.usuario import Usuario
-from app.models.materia import Materia
 from app.models.nota import Nota
 from app.schemas.nota import NotaResponse
 from app.services import storage_service
@@ -108,17 +108,8 @@ async def upload_audio(
 
     **Formatos soportados:** MP3, WAV, M4A, OGG, FLAC, WebM
     """
-    # Verificar materia pertenece al usuario
-    materia = db.query(Materia).filter(
-        Materia.id == materia_id,
-        Materia.usuario_id == current_user.id
-    ).first()
-
-    if not materia:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Materia no encontrada"
-        )
+    # Verificar materia pertenece al semestre activo editable
+    materia = get_materia_editable(db, current_user, materia_id)
 
     # Validar archivo
     file_size = _validate_audio_file(file)

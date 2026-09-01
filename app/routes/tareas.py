@@ -9,6 +9,7 @@ from datetime import date, timedelta
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.semestre import get_semestre_actual, get_materia_editable, require_editable_semestre
 from app.core.sync_events import build_sync_event
 from app.core.user_ws import broadcast_user
 from app.models.usuario import Usuario
@@ -32,13 +33,7 @@ def create_tarea(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Crea un nuevo evento académico (tarea, parcial, entrega, etc)."""
-    materia = db.query(Materia).filter(
-        Materia.id == tarea_data.materia_id,
-        Materia.usuario_id == current_user.id
-    ).first()
-    
-    if not materia:
-        raise HTTPException(status_code=404, detail="Materia no encontrada")
+    materia = get_materia_editable(db, current_user, tarea_data.materia_id)
     
     new_tarea = Tarea(
         titulo=tarea_data.titulo,
@@ -82,7 +77,11 @@ def get_tareas(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Lista eventos con filtros opcionales."""
-    query = db.query(Tarea).join(Materia).filter(Materia.usuario_id == current_user.id)
+    semestre = get_semestre_actual(db, current_user)
+    query = db.query(Tarea).join(Materia).filter(
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
+    )
     
     if materia_id:
         query = query.filter(Tarea.materia_id == materia_id)
@@ -117,6 +116,7 @@ def get_pendientes(
     Se pueden filtrar por `materia_id` y `tipo` simultáneamente."""
     query = db.query(Tarea).join(Materia).filter(
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
         Tarea.estado != TareaEstado.COMPLETADA
     )
 
@@ -147,6 +147,7 @@ def get_calendario(
     
     eventos = db.query(Tarea).join(Materia).filter(
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
         Tarea.fecha_limite >= primer_dia,
         Tarea.fecha_limite <= ultimo_dia
     ).all()
@@ -178,7 +179,8 @@ def get_tarea(
     """Obtiene una tarea por ID."""
     tarea = db.query(Tarea).join(Materia).filter(
         Tarea.id == tarea_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
     ).first()
     
     if not tarea:
@@ -195,9 +197,13 @@ def update_tarea(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza una tarea."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     tarea = db.query(Tarea).join(Materia).filter(
         Tarea.id == tarea_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
     
     if not tarea:
@@ -207,12 +213,7 @@ def update_tarea(
     
     # Validar materia si se cambia
     if "materia_id" in update_data:
-        materia = db.query(Materia).filter(
-            Materia.id == update_data["materia_id"],
-            Materia.usuario_id == current_user.id
-        ).first()
-        if not materia:
-            raise HTTPException(status_code=404, detail="Materia no encontrada")
+        get_materia_editable(db, current_user, update_data["materia_id"])
     
     # Convertir enums si presentes
     if "estado" in update_data and update_data["estado"]:
@@ -251,7 +252,13 @@ def reorder_tareas(
     if not ids:
         return None
 
-    tareas = db.query(Tarea).filter(Tarea.id.in_(ids)).join(Materia).filter(Materia.usuario_id == current_user.id).all()
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
+    tareas = db.query(Tarea).filter(Tarea.id.in_(ids)).join(Materia).filter(
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
+    ).all()
     tarea_map = {t.id: t for t in tareas}
 
     for index, tid in enumerate(ids):
@@ -283,9 +290,13 @@ def delete_tarea(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina una tarea."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     tarea = db.query(Tarea).join(Materia).filter(
         Tarea.id == tarea_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
     
     if not tarea:

@@ -18,6 +18,7 @@ from loguru import logger
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.semestre import get_semestre_actual, get_materia_editable, require_editable_semestre
 from app.core.config import settings
 from app.core.sync_events import build_sync_event
 from app.core.user_ws import broadcast_user
@@ -50,13 +51,7 @@ def create_nota(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Crea una nueva nota/lienzo de clase."""
-    materia = db.query(Materia).filter(
-        Materia.id == nota_data.materia_id,
-        Materia.usuario_id == current_user.id
-    ).first()
-    
-    if not materia:
-        raise HTTPException(status_code=404, detail="Materia no encontrada")
+    materia = get_materia_editable(db, current_user, nota_data.materia_id)
     
     nota = Nota(
         titulo=nota_data.titulo,
@@ -95,6 +90,7 @@ def get_notas(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Lista notas con filtros por materia, texto y fecha."""
+    semestre = get_semestre_actual(db, current_user)
     query = db.query(
         Nota.id,
         Nota.titulo,
@@ -109,7 +105,10 @@ def get_notas(
         Nota.fecha_actualizacion,
         Materia.nombre.label("materia_nombre"),
         Materia.color.label("materia_color"),
-    ).join(Materia).filter(Materia.usuario_id == current_user.id)
+    ).join(Materia).filter(
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
+    )
     
     if materia_id:
         query = query.filter(Nota.materia_id == materia_id)
@@ -157,8 +156,10 @@ def get_recientes(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Últimas notas creadas/actualizadas."""
+    semestre = get_semestre_actual(db, current_user)
     return db.query(Nota).join(Materia).options(joinedload(Nota.materia)).filter(
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).order_by(Nota.fecha_actualizacion.desc().nullslast(), Nota.fecha_creacion.desc()).limit(limit).all()
 
 
@@ -168,19 +169,23 @@ def get_notas_stats(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Estadísticas de notas."""
+    semestre = get_semestre_actual(db, current_user)
     total = db.query(func.count(Nota.id)).join(Materia).filter(
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).scalar()
     
     audio_count = db.query(func.count(Nota.id)).join(Materia).filter(
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
         Nota.origen_audio.isnot(None)
     ).scalar()
     
     by_materia = db.query(
         Materia.id, Materia.nombre, func.count(Nota.id).label("count")
     ).outerjoin(Nota).filter(
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).group_by(Materia.id, Materia.nombre).all()
     
     return {
@@ -198,11 +203,13 @@ def get_nota(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene una nota con sus adjuntos."""
+    semestre = get_semestre_actual(db, current_user)
     nota = db.query(Nota).join(Materia).options(
         joinedload(Nota.materia), joinedload(Nota.adjuntos)
     ).filter(
         Nota.id == nota_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
     
     if not nota:
@@ -235,9 +242,11 @@ def get_nota_status(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Obtiene el estado y progreso de una nota (útil para polling o UI)."""
+    semestre = get_semestre_actual(db, current_user)
     nota = db.query(Nota).join(Materia).filter(
         Nota.id == nota_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
 
     if not nota:
@@ -273,9 +282,13 @@ def reprocess_nota(
     Por defecto reutiliza la transcripción ya guardada (más rápido).
     Usa force_retranscribe=true para forzar retranscripción completa desde el audio.
     """
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     nota = db.query(Nota).join(Materia).options(joinedload(Nota.materia)).filter(
         Nota.id == nota_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
     ).first()
 
     if not nota:
@@ -338,9 +351,13 @@ def update_nota(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Actualiza una nota."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     nota = db.query(Nota).join(Materia).filter(
         Nota.id == nota_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
     
     if not nota:
@@ -348,12 +365,7 @@ def update_nota(
     
     materia: Optional[Materia] = None
     if nota_data.materia_id:
-        materia = db.query(Materia).filter(
-            Materia.id == nota_data.materia_id,
-            Materia.usuario_id == current_user.id
-        ).first()
-        if not materia:
-            raise HTTPException(status_code=404, detail="Materia no encontrada")
+        materia = get_materia_editable(db, current_user, nota_data.materia_id)
     
     for key, value in nota_data.model_dump(exclude_unset=True).items():
         setattr(nota, key, value)
@@ -391,7 +403,8 @@ def export_nota_pdf(
     """
     nota = db.query(Nota).join(Materia).filter(
         Nota.id == nota_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
     ).first()
     
     if not nota:
@@ -644,9 +657,13 @@ async def upload_adjunto(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Sube una imagen u otro archivo a una nota."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     nota = db.query(Nota).join(Materia).filter(
         Nota.id == nota_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
     ).first()
     
     if not nota:
@@ -696,10 +713,14 @@ def delete_adjunto(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina un adjunto de una nota."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     adjunto = db.query(Adjunto).join(Nota).join(Materia).filter(
         Adjunto.id == adjunto_id,
         Adjunto.nota_id == nota_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
     
     if not adjunto:
@@ -723,9 +744,13 @@ def delete_nota(
     current_user: Usuario = Depends(get_current_user)
 ):
     """Elimina una nota y sus adjuntos."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     nota = db.query(Nota).join(Materia).filter(
         Nota.id == nota_id,
-        Materia.usuario_id == current_user.id
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
     ).first()
     
     if not nota:

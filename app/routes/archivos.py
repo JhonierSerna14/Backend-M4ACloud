@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.semestre import get_semestre_actual, get_materia_editable, require_editable_semestre
 from app.models.archivo import Archivo
 from app.models.materia import Materia
 from app.models.usuario import Usuario
@@ -44,12 +45,7 @@ async def upload_file(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Sube un archivo a una materia."""
-    materia = db.query(Materia).filter(
-        Materia.id == materia_id,
-        Materia.usuario_id == current_user.id,
-    ).first()
-    if not materia:
-        raise HTTPException(status_code=404, detail="Materia no encontrada")
+    materia = get_materia_editable(db, current_user, materia_id)
 
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
@@ -128,7 +124,11 @@ def get_archivos(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Lista archivos con filtros opcionales."""
-    query = db.query(Archivo).join(Materia).filter(Materia.usuario_id == current_user.id)
+    semestre = get_semestre_actual(db, current_user)
+    query = db.query(Archivo).join(Materia).filter(
+        Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
+    )
 
     if materia_id:
         query = query.filter(Archivo.materia_id == materia_id)
@@ -148,6 +148,7 @@ def get_archivo(
     archivo = db.query(Archivo).join(Materia).filter(
         Archivo.id == archivo_id,
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
     ).first()
 
     if not archivo:
@@ -165,6 +166,7 @@ def download_archivo(
     archivo = db.query(Archivo).join(Materia).filter(
         Archivo.id == archivo_id,
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == get_semestre_actual(db, current_user).id,
     ).first()
 
     if not archivo:
@@ -192,9 +194,13 @@ def delete_archivo(
     current_user: Usuario = Depends(get_current_user),
 ):
     """Elimina un archivo."""
+    semestre = get_semestre_actual(db, current_user)
+    require_editable_semestre(db, current_user, semestre)
+
     archivo = db.query(Archivo).join(Materia).filter(
         Archivo.id == archivo_id,
         Materia.usuario_id == current_user.id,
+        Materia.semestre_id == semestre.id,
     ).first()
 
     if not archivo:

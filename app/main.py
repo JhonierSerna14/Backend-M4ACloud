@@ -18,6 +18,7 @@ from app.core.logging import setup_logging
 from app.core.metrics import get_metrics_payload
 from app.routes import (
     auth_router,
+    semestres_router,
     materias_router,
     tareas_router,
     notas_router,
@@ -82,6 +83,7 @@ async def add_process_time_header(request: Request, call_next):
 
 # Routers
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
+app.include_router(semestres_router, prefix=settings.API_V1_PREFIX)
 app.include_router(dashboard_router, prefix=settings.API_V1_PREFIX)
 app.include_router(materias_router, prefix=settings.API_V1_PREFIX)
 app.include_router(tareas_router, prefix=settings.API_V1_PREFIX)

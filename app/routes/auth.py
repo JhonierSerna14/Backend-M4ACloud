@@ -12,6 +12,7 @@ from app.core.security import create_access_token, create_refresh_token, verify_
 from app.core.config import settings
 from app.core.auth import get_current_user, get_refresh_token_user
 from app.models.usuario import Usuario
+from app.models.semestre import Semestre
 from app.schemas.usuario import UsuarioCreate, UsuarioResponse
 from app.schemas.token import Token
 
@@ -50,6 +51,17 @@ def register_user(user_data: UsuarioCreate, db: Session = Depends(get_db)):
     )
     
     db.add(new_user)
+    db.flush()
+
+    default_semestre = Semestre(
+        codigo="2026-01",
+        nombre="Semestre 2026-01",
+        usuario_id=new_user.id,
+    )
+    db.add(default_semestre)
+    db.flush()
+    new_user.semestre_actual_id = default_semestre.id
+
     db.commit()
     db.refresh(new_user)
     

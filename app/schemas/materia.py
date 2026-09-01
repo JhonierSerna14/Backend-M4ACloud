@@ -23,6 +23,7 @@ class MateriaUpdate(BaseModel):
 class MateriaResponse(MateriaBase):
     id: int
     usuario_id: int
+    semestre_id: int
     fecha_creacion: datetime
     total_notas: int = 0
     total_tareas: int = 0
@@ -37,6 +38,7 @@ class MateriaListResponse(BaseModel):
     descripcion: Optional[str] = None
     color: Optional[str] = None
     usuario_id: int
+    semestre_id: int
     fecha_creacion: datetime
     total_notas: int = 0
     total_tareas: int = 0

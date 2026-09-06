@@ -1,6 +1,7 @@
 """Google Calendar OAuth and one-way sync service."""
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,6 +14,7 @@ from loguru import logger
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
+from app.core.security import create_google_oauth_state, verify_google_oauth_state
 from app.core.semestre import get_semestre_actual, is_editable_semestre
 from app.core.token_crypto import decrypt_token, encrypt_token
 from app.models.enums import TareaEstado
@@ -44,9 +46,11 @@ def _client_config() -> dict[str, Any]:
     }
 
 
-def get_auth_url(state: str) -> str:
+def get_auth_url(user_id: int) -> str:
     flow = Flow.from_client_config(_client_config(), scopes=SCOPES)
     flow.redirect_uri = settings.GOOGLE_REDIRECT_URI
+    flow.code_verifier = secrets.token_urlsafe(64)
+    state = create_google_oauth_state(user_id, flow.code_verifier)
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -56,10 +60,11 @@ def get_auth_url(state: str) -> str:
     return auth_url
 
 
-def exchange_code(code: str) -> str:
+def exchange_code(code: str, state: str) -> str:
+    _, code_verifier = verify_google_oauth_state(state)
     flow = Flow.from_client_config(_client_config(), scopes=SCOPES)
     flow.redirect_uri = settings.GOOGLE_REDIRECT_URI
-    flow.fetch_token(code=code)
+    flow.fetch_token(code=code, code_verifier=code_verifier)
     credentials = flow.credentials
     if not credentials.refresh_token:
         raise ValueError("Google no devolvió refresh token. Revoca el acceso previo e intenta de nuevo.")

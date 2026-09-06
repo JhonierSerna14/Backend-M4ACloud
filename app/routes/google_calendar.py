@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import create_google_oauth_state, verify_google_oauth_state
+from app.core.security import verify_google_oauth_state
 from app.core.semestre import get_semestre_actual
 from app.models.usuario import Usuario
 from app.schemas.google_calendar import (
@@ -74,8 +74,7 @@ def get_google_auth_url(current_user: Usuario = Depends(get_current_user)):
             detail="Google Calendar no está configurado en el servidor",
         )
 
-    state = create_google_oauth_state(current_user.id)
-    return GoogleCalendarAuthUrlResponse(authorization_url=get_auth_url(state))
+    return GoogleCalendarAuthUrlResponse(authorization_url=get_auth_url(current_user.id))
 
 
 @router.get("/auth/callback")
@@ -95,7 +94,7 @@ def google_auth_callback(
         return _frontend_redirect("error", "Google Calendar no configurado")
 
     try:
-        user_id = verify_google_oauth_state(state)
+        user_id, _ = verify_google_oauth_state(state)
     except ValueError as exc:
         return _frontend_redirect("error", str(exc))
 
@@ -104,7 +103,7 @@ def google_auth_callback(
         return _frontend_redirect("error", "Usuario no encontrado")
 
     try:
-        refresh_token = exchange_code(code)
+        refresh_token = exchange_code(code, state)
         semestre = get_semestre_actual(db, user)
         connect_user(db, user, refresh_token, semestre.codigo)
         bulk_sync_semestre(db, user)

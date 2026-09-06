@@ -44,17 +44,22 @@ def get_password_hash(password: str) -> str:
 GOOGLE_OAUTH_STATE_PURPOSE = "google_oauth_state"
 
 
-def create_google_oauth_state(user_id: int, expires_minutes: int = 10) -> str:
+def create_google_oauth_state(
+    user_id: int,
+    code_verifier: str,
+    expires_minutes: int = 10,
+) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     payload = {
         "exp": expire,
         "sub": str(user_id),
         "purpose": GOOGLE_OAUTH_STATE_PURPOSE,
+        "cv": code_verifier,
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def verify_google_oauth_state(state: str) -> int:
+def verify_google_oauth_state(state: str) -> tuple[int, str]:
     from jose import JWTError
 
     try:
@@ -65,4 +70,8 @@ def verify_google_oauth_state(state: str) -> int:
     if payload.get("purpose") != GOOGLE_OAUTH_STATE_PURPOSE:
         raise ValueError("Estado OAuth inválido")
 
-    return int(payload["sub"])
+    code_verifier = payload.get("cv")
+    if not code_verifier:
+        raise ValueError("Estado OAuth incompleto (falta code verifier)")
+
+    return int(payload["sub"]), code_verifier

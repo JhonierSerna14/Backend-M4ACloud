@@ -263,7 +263,10 @@ psql "$DATABASE_URL" -f migrations/003_google_calendar.sql
 2. Enable **Google Calendar API** (APIs & Services → Library)
 3. Configure OAuth consent screen:
    - User type: **External**
-   - Add scope: `https://www.googleapis.com/auth/calendar.events`
+   - Add scopes:
+     - `https://www.googleapis.com/auth/calendar.events`
+     - `https://www.googleapis.com/auth/calendar.calendars`
+     - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
    - Add test users while developing, or publish the app for production
 4. Create OAuth 2.0 credentials (**Web application**)
 5. Add authorized redirect URI:

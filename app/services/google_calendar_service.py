@@ -22,7 +22,11 @@ from app.models.materia import Materia
 from app.models.tarea import Tarea
 from app.models.usuario import Usuario
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.calendars",
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+]
 OAUTH_STATE_PURPOSE = "google_oauth_state"
 
 
@@ -118,10 +122,16 @@ def ensure_calendar(user: Usuario, semestre_codigo: str) -> str:
             logger.info(f"Stored calendar {user.google_calendar_id} not found, creating new one")
 
     target_name = _calendar_name(semestre_codigo)
-    calendar_list = service.calendarList().list().execute()
-    for entry in calendar_list.get("items", []):
-        if entry.get("summary") == target_name:
-            return entry["id"]
+
+    try:
+        calendar_list = service.calendarList().list().execute()
+        for entry in calendar_list.get("items", []):
+            if entry.get("summary") == target_name:
+                return entry["id"]
+    except HttpError as exc:
+        if exc.resp.status != 403:
+            raise
+        logger.warning("calendarList unavailable, creating dedicated M4A calendar directly")
 
     created = service.calendars().insert(
         body={

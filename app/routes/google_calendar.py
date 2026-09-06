@@ -33,7 +33,7 @@ def _frontend_redirect(status_value: str, message: str | None = None) -> Redirec
     params = {"gcal": status_value}
     if message:
         params["gcal_message"] = message
-    url = f"{settings.FRONTEND_URL.rstrip('/')}/?{urlencode(params)}"
+    url = f"{settings.FRONTEND_URL.rstrip('/')}/configuracion?{urlencode(params)}"
     return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
 
 

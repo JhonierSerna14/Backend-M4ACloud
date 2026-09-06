@@ -35,6 +35,9 @@ class Tarea(Base):
     fecha_actualizacion = Column(DateTime(timezone=True), onupdate=func.now())
     # Orden personalizado para reordenamiento por el usuario
     orden = Column(Integer, default=0, index=True)
+
+    # Google Calendar sync
+    google_event_id = Column(String(255), nullable=True, index=True)
     
     # Relaciones
     materia = relationship("Materia", back_populates="tareas")

@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, DateTime
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, DateTime, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -15,6 +15,12 @@ class Usuario(Base):
     fecha_creacion = Column(DateTime(timezone=True), server_default=func.now())
     fecha_actualizacion = Column(DateTime(timezone=True), onupdate=func.now())
     semestre_actual_id = Column(Integer, ForeignKey("semestres.id"), nullable=True)
+
+    # Google Calendar sync
+    google_refresh_token = Column(Text, nullable=True)
+    google_calendar_id = Column(String(255), nullable=True)
+    google_calendar_connected_at = Column(DateTime(timezone=True), nullable=True)
+    google_calendar_sync_enabled = Column(Boolean, default=False)
     
     # Relaciones
     materias = relationship("Materia", back_populates="usuario", cascade="all, delete-orphan")

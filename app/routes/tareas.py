@@ -17,6 +17,7 @@ from app.models.materia import Materia
 from app.models.tarea import Tarea
 from app.models.enums import TareaEstado, EventoTipo
 from app.schemas.tarea import TareaCreate, TareaUpdate, TareaResponse, TareaEstadoEnum, EventoTipoEnum
+from app.services.google_calendar_sync import sync_tarea_to_google
 
 router = APIRouter(prefix="/tareas", tags=["tareas"])
 
@@ -61,6 +62,13 @@ def create_tarea(
             affected_collections=["tareas", "dashboard", "calendario", "materias", f"tarea:{new_tarea.id}"],
         ),
     )
+    if current_user.google_calendar_sync_enabled and new_tarea.fecha_limite:
+        background_tasks.add_task(
+            sync_tarea_to_google,
+            current_user.id,
+            "create",
+            new_tarea.id,
+        )
     return new_tarea
 
 
@@ -238,6 +246,13 @@ def update_tarea(
             affected_collections=["tareas", "dashboard", "calendario", "materias", f"tarea:{tarea.id}"],
         ),
     )
+    if current_user.google_calendar_sync_enabled:
+        background_tasks.add_task(
+            sync_tarea_to_google,
+            current_user.id,
+            "update",
+            tarea.id,
+        )
     return tarea
 
 
@@ -304,6 +319,7 @@ def delete_tarea(
     
     materia_id = tarea.materia_id
     estado = tarea.estado.value
+    google_event_id = tarea.google_event_id
     db.delete(tarea)
     db.commit()
 
@@ -318,4 +334,11 @@ def delete_tarea(
             affected_collections=["tareas", "dashboard", "calendario", "materias", f"tarea:{tarea_id}"],
         ),
     )
+    if current_user.google_calendar_sync_enabled and google_event_id:
+        background_tasks.add_task(
+            sync_tarea_to_google,
+            current_user.id,
+            "delete",
+            google_event_id=google_event_id,
+        )
     return {"ok": True, "id": tarea_id, "materia_id": materia_id}

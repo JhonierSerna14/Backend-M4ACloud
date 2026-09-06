@@ -42,3 +42,8 @@ prometheus_client==0.17.0
 
 # Dependencias para WebSocket (Supabase Realtime requiere websockets.asyncio)
 websockets>=13.1,<15
+
+# Google Calendar sync
+google-api-python-client>=2.150.0
+google-auth-oauthlib>=1.2.0
+cryptography>=43.0.0

@@ -11,6 +11,7 @@ from app.core.auth import get_current_user
 from app.core.semestre import get_semestre_actual, get_latest_semestre, is_editable_semestre
 from app.core.sync_events import build_sync_event
 from app.core.user_ws import broadcast_user
+from app.services.google_calendar_sync import bulk_sync_user_semestre
 from app.models.usuario import Usuario
 from app.models.semestre import Semestre
 from app.models.materia import Materia
@@ -175,4 +176,6 @@ def set_semestre_actual(
             affected_collections=["semestres", "semestre-actual", "materias", "dashboard", "notas", "tareas", "calendario"],
         ),
     )
+    if current_user.google_calendar_sync_enabled:
+        background_tasks.add_task(bulk_sync_user_semestre, current_user.id)
     return payload

@@ -75,6 +75,14 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    # Google Calendar OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    GOOGLE_REDIRECT_URI: str = ""
+    GOOGLE_CALENDAR_TIMEZONE: str = "America/Bogota"
+    GOOGLE_TOKEN_ENCRYPTION_KEY: str = ""
+    FRONTEND_URL: str = "http://localhost:5173"
+
     # Chunking de transcripciones para IA
     MAX_TRANSCRIPT_SIZE_SINGLE: int = 15000
     GROQ_REQUEST_DELAY: float = 2.5

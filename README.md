@@ -245,6 +245,58 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ... \
 python scripts/migrate_uploads_to_supabase.py
 ```
 
+## Google Calendar Integration
+
+One-way sync from M4A tasks to a dedicated Google Calendar (`M4A - {semestre}`). Free to use with personal Google accounts under standard API quotas.
+
+### Database migration
+
+Run once against your Postgres database:
+
+```bash
+psql "$DATABASE_URL" -f migrations/003_google_calendar.sql
+```
+
+### Google Cloud setup (one-time, no cost)
+
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com)
+2. Enable **Google Calendar API** (APIs & Services → Library)
+3. Configure OAuth consent screen:
+   - User type: **External**
+   - Add scope: `https://www.googleapis.com/auth/calendar.events`
+   - Add test users while developing, or publish the app for production
+4. Create OAuth 2.0 credentials (**Web application**)
+5. Add authorized redirect URI:
+   ```
+   https://your-backend.example.com/api/v1/google-calendar/auth/callback
+   ```
+6. Copy Client ID and Client Secret to backend `.env`
+
+> In Testing mode, refresh tokens expire after 7 days. Publish the app to Production for long-lived tokens (users may see an "unverified app" warning until Google verifies the app).
+
+### Environment variables
+
+```env
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+GOOGLE_REDIRECT_URI=https://your-backend.example.com/api/v1/google-calendar/auth/callback
+GOOGLE_CALENDAR_TIMEZONE=America/Bogota
+FRONTEND_URL=https://your-frontend.example.com
+GOOGLE_TOKEN_ENCRYPTION_KEY=optional-dedicated-key-for-token-encryption
+```
+
+### API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/google-calendar/status` | Connection status |
+| GET | `/api/v1/google-calendar/auth/url` | OAuth authorization URL |
+| GET | `/api/v1/google-calendar/auth/callback` | OAuth callback (public) |
+| POST | `/api/v1/google-calendar/disconnect` | Revoke and disconnect |
+| POST | `/api/v1/google-calendar/sync` | Manual re-sync of active semester |
+
+Tasks with a `fecha_limite` in the active semester are synced on create/update/delete. Completed tasks appear with a `[Completada]` prefix in Google Calendar.
+
 ## License
 
 MIT

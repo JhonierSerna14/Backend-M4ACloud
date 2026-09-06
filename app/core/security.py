@@ -39,3 +39,30 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+GOOGLE_OAUTH_STATE_PURPOSE = "google_oauth_state"
+
+
+def create_google_oauth_state(user_id: int, expires_minutes: int = 10) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    payload = {
+        "exp": expire,
+        "sub": str(user_id),
+        "purpose": GOOGLE_OAUTH_STATE_PURPOSE,
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def verify_google_oauth_state(state: str) -> int:
+    from jose import JWTError
+
+    try:
+        payload = jwt.decode(state, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError as exc:
+        raise ValueError("Estado OAuth inválido o expirado") from exc
+
+    if payload.get("purpose") != GOOGLE_OAUTH_STATE_PURPOSE:
+        raise ValueError("Estado OAuth inválido")
+
+    return int(payload["sub"])

@@ -52,6 +52,9 @@ class Settings(BaseSettings):
 
     # Worker: clave secreta compartida con el worker local
     WORKER_SECRET_KEY: str = "change-me-worker-secret"
+
+    # Share Target (Vercel → backend): misma clave en SHARE_INTAKE_SECRET en Vercel
+    SHARE_INTAKE_SECRET: str = ""
     
     # Worker: timeout para detectar tareas huérfanas (minutos)
     # Si una tarea está en "processing" sin actualización después de este tiempo,

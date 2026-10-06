@@ -31,6 +31,7 @@ from app.routes import (
 )
 from app.routes.uploads import router as uploads_router
 from app.routes.worker import router as worker_router
+from app.routes.share_intake import router as share_intake_router
 
 
 @asynccontextmanager
@@ -96,6 +97,7 @@ app.include_router(ws_sync_router, prefix=settings.API_V1_PREFIX)
 app.include_router(google_calendar_router, prefix=settings.API_V1_PREFIX)
 app.include_router(uploads_router, prefix=settings.API_V1_PREFIX)
 app.include_router(worker_router, prefix=settings.API_V1_PREFIX)
+app.include_router(share_intake_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/", tags=["root"])
